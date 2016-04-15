@@ -220,6 +220,10 @@ static inline uint64_t fi_mr_key(struct fid_mr *mr)
 	return mr->key;
 }
 
+enum fi_mr_bind_flags {
+        FI_MR_NOTIFY_INVALIDATE
+};
+
 static inline int fi_mr_bind(struct fid_mr *mr, struct fid *bfid, uint64_t flags)
 {
 	return mr->fid.ops->bind(&mr->fid, bfid, flags);
