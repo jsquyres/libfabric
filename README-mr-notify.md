@@ -56,7 +56,13 @@ int MPI_Send(void *buf, ...)
 }
 ```
 
-3. In the usnic provider, we'll check the ummunotify-style mmap'ed counter during `fi_eq_read()` to see if any changes have occurred down in the kernel.
+## Providers
+
+Providers are generally responsible for ensuring that events show up on the EQ when registered memory becomes invalidated.
+
+### usnic provider plan
+
+In the usnic provider, we'll check the ummunotify-style mmap'ed counter during `fi_eq_read()` to see if any changes have occurred down in the kernel.
 
 If any changes have occurred, we'll make the expensive downcall/read calls to read the details of the ummunotify events from the kernel, and then stuff them into the EQ.
 
