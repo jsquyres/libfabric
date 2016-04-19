@@ -25,7 +25,7 @@ struct fi_mr_notify_invalid_eq {
     uint64_t access;
     uint64_t offset;
     uint64_t key;
-    void *context; from the fi_mr_reg() call
+    void *context; // from the fi_mr_reg() call
 };
 
 int MPI_Send(void *buf, ...)
@@ -43,7 +43,7 @@ int MPI_Send(void *buf, ...)
             }
         }
 
-        // after handling all of the events, check to ensure the
+        // After handling all of the events, check to ensure the
         // buffer is already registered (can probably be a bit more
         // efficient than this, but you get the idea)
         if (!check_mpi_reg_cache(buf)) {
@@ -51,7 +51,7 @@ int MPI_Send(void *buf, ...)
         }
     }
 
-    // rest of MPI_Send (but now we know for 100% sure
+    // ...The rest of MPI_Send (but now we know for 100% sure
     // if the buffer is already registered)
 }
 ```
