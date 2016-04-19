@@ -281,6 +281,25 @@ memory region is based on the bitwise OR of the following flags.
 : Generates an event whenever a remote RMA write or atomic operation
   modify the memory region.
 
+*FI_MR_NOTIFY_INVALIDATE*
+: Generates an event if the memory region becomes invalid (e.g., if
+  the memory leaves the process).  `fi_eq_read()` will return an event
+  of `FI_MR_INVALIDATE` and the following struct when registered
+  memory becomes invalid:
+
+```c
+struct fi_mr_notify_invalid_eq {
+    struct fid_domain *domain;
+    struct fid_mr *mr;
+    void *buf;
+    size_t len;
+    uint64_t access;
+    uint64_t offset;
+    uint64_t key;
+    void *context; // from the fi_mr_reg() call
+};
+```
+
 # FLAGS
 
 Flags are reserved for future use and must be 0.

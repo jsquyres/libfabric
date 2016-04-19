@@ -346,6 +346,11 @@ additional optimizations.
   used to enforce ordering between operations that are not otherwise
   guaranteed by the underlying provider or protocol.
 
+*FI_MR_NOTIFY_INVALIDATE*
+: Indicates that the provider can create an event queue entry when
+  registered memory has become invalid (e.g., if the memory has left
+  the process).
+
 Capabilities may be grouped into two general categories: primary and
 secondary.  Primary capabilities must explicitly be requested by an
 application, and a provider must enable support for only those primary
@@ -359,7 +364,7 @@ Primary capabilities: FI_MSG, FI_RMA, FI_TAGGED, FI_ATOMIC, FI_NAMED_RX_CTX,
 FI_DIRECTED_RECV, FI_READ, FI_WRITE, FI_RECV, FI_SEND, FI_REMOTE_READ,
 and FI_REMOTE_WRITE.
 
-Secondary capabilities: FI_MULTI_RECV, FI_SOURCE, FI_RMA_EVENT, FI_TRIGGER, FI_FENCE.
+Secondary capabilities: FI_MULTI_RECV, FI_SOURCE, FI_RMA_EVENT, FI_TRIGGER, FI_FENCE, FI_MR_NOTIFY_INVALIDATE.
 
 # MODE
 

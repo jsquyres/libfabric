@@ -122,6 +122,7 @@ enum {
 	FI_SHUTDOWN,
 	FI_MR_COMPLETE,
 	FI_AV_COMPLETE,
+	FI_MR_INVALIDATE,
 };
 
 struct fi_eq_entry {

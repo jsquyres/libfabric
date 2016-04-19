@@ -35,7 +35,7 @@ int MPI_Send(void *buf, ...)
         is_registered = true;
 
         while (fi_eq_read(eq, &event, event_buf, sizeof(event_buf), flags) > 0) {
-            if (event == FI_MR_NOTIFY_INVALIDATE) {
+            if (event == FI_MR_INVALIDATE) {
                 struct fi_mr_notify_invalidate_eq *entry = event_buf;
                 // remove the MR from this entry from MPI's reg cache
             } else {
