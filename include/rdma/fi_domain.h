@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2014 Intel Corporation. All rights reserved.
+ * Copyright (c) 2016 Cisco Systems, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -219,10 +220,6 @@ static inline uint64_t fi_mr_key(struct fid_mr *mr)
 {
 	return mr->key;
 }
-
-enum fi_mr_bind_flags {
-        FI_MR_NOTIFY_INVALIDATE
-};
 
 static inline int fi_mr_bind(struct fid_mr *mr, struct fid *bfid, uint64_t flags)
 {

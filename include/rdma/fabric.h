@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2016 Intel Corporation. All rights reserved.
+ * Copyright (c) 2016 Cisco Systems, Inc. All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -125,6 +126,7 @@ typedef struct fid *fid_t;
 #define FI_DELIVERY_COMPLETE	(1ULL << 28)
 
 /* fi_getinfo()-specific flags/caps */
+#define FI_MR_NOTIFY_INVALIDATE	(1ULL << 53)
 #define FI_PROV_ATTR_ONLY	(1ULL << 54)
 #define FI_NUMERICHOST		(1ULL << 55)
 #define FI_RMA_EVENT		(1ULL << 56)
