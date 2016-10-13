@@ -262,5 +262,3 @@ See the `fi_verbs(7)` man page for more details.
   LDFLAGS and LD_LIBRARY_PATH environment variables.
 
 
-Hello world
-Kittens with mittens, saw their pa in Arkansas.
