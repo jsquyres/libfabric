@@ -263,4 +263,4 @@ See the `fi_verbs(7)` man page for more details.
 
 
 Hello world
-Hello Milton Keynes!
+Kittens with mittens, saw their pa in Arkansas.
