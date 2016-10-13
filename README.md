@@ -261,4 +261,4 @@ See the `fi_verbs(7)` man page for more details.
   If the libraries and header files are not in default paths, specify them in CFLAGS,
   LDFLAGS and LD_LIBRARY_PATH environment variables.
 
-never assume you're a'right unless you're a Wright.
+birds of a feather, stick together
