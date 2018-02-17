@@ -11,7 +11,7 @@ fi_domain \- Open a fabric access domain
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fabric.h>
 
 #include <rdma/fi_domain.h>
@@ -26,7 +26,7 @@ int fi_domain_bind(struct fid_domain *domain, struct fid *eq,
 
 int fi_open_ops(struct fid *domain, const char *name, uint64_t flags,
     void **ops, void *context);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -106,7 +106,7 @@ prior to calling fi_close, otherwise the call will return -FI_EBUSY.
 The `fi_domain_attr` structure defines the set of attributes associated
 with a domain.
 
-{% highlight c %}
+```c
 struct fi_domain_attr {
 	struct fid_domain     *domain;
 	char                  *name;
@@ -115,7 +115,7 @@ struct fi_domain_attr {
 	enum fi_progress      data_progress;
 	enum fi_resource_mgmt resource_mgmt;
 	enum fi_av_type       av_type;
-	enum fi_mr_mode       mr_mode;
+	int                   mr_mode;
 	size_t                mr_key_size;
 	size_t                cq_data_size;
 	size_t                cq_cnt;
@@ -126,8 +126,16 @@ struct fi_domain_attr {
 	size_t                max_ep_rx_ctx;
 	size_t                max_ep_stx_ctx;
 	size_t                max_ep_srx_ctx;
+	size_t                cntr_cnt;
+	size_t                mr_iov_limit;
+	uint64_t              caps;
+	uint64_t              mode;
+	uint8_t               *auth_key;
+	size_t                auth_key_size;
+	size_t                max_err_data;
+	size_t                mr_cnt;
 };
-{% endhighlight %}
+```
 
 ## domain
 
@@ -173,19 +181,19 @@ interfaces enables a provider to eliminate lower-level locks.
   For example, one thread may be initiating a data transfer on an
   endpoint, while another thread reads from a completion queue
   associated with the endpoint.
-  
+
   Serialization to endpoint access is only required when accessing
   the same endpoint data flow.  Multiple threads may initiate transfers
   on different transmit contexts of the same endpoint without serializing,
   and no serialization is required between the submission of data
   transmit requests and data receive operations.
-  
+
   In general, FI_THREAD_FID allows the provider to be implemented
   without needing internal locking when handling data transfers.
   Conceptually, FI_THREAD_FID maps well to providers that implement
   fabric services in hardware and provide separate command queues to
   different data flows.
-  
+
 *FI_THREAD_ENDPOINT*
 : The endpoint threading model is similar to FI_THREAD_FID, but with
   the added restriction that serialization is required when accessing
@@ -198,13 +206,13 @@ interfaces enables a provider to eliminate lower-level locks.
 : The completion threading model is intended for providers that make use
   of manual progress.  Applications must serialize access to all objects
   that are associated through the use of having a shared completion
-  structure.  This includes endpoint, completion queue, counter, wait set,
-  and poll set objects.
-  
+  structure.  This includes endpoint, transmit context, receive context,
+  completion queue, counter, wait set, and poll set objects.
+
   For example, threads must serialize access to an endpoint and its
   bound completion queue(s) and/or counters.  Access to endpoints that
   share the same completion queue must also be serialized.
-  
+
   The use of FI_THREAD_COMPLETION can increase parallelism over
   FI_THREAD_SAFE, but requires the use of isolated resources.
 
@@ -233,6 +241,10 @@ Data progress indicates the method that the provider uses to make
 progress on data transfer operations.  This includes message queue,
 RMA, tagged messaging, and atomic operations, along with their
 completion processing.
+
+Progress frequently requires action being taken at both the transmitting
+and receiving sides of an operation.  This is often a requirement for
+reliable transfers, as a result of retry and acknowledgement processing.
 
 To balance between performance and ease of use, two progress models
 are defined.
@@ -267,6 +279,14 @@ are defined.
   Only wait operations defined by the fabric interface will result in
   an operation progressing.  Operating system or external wait
   functions, such as select, poll, or pthread routines, cannot.
+
+  Manual progress requirements not only apply to endpoints that initiate
+  transmit operations, but also to endpoints that may be the target of
+  such operations.  This holds true even if the target endpoint will not
+  generate completion events for the operations.  For example, an endpoint
+  that acts purely as the target of RMA or atomic operations that uses
+  manual progress may still need application assistance to process
+  received operations.
 
 ## Resource Management (resource_mgmt)
 
@@ -303,63 +323,75 @@ The following values for resource management are defined.
 
 The behavior of the various resource management options depends on whether
 the endpoint is reliable or unreliable, as well as provider and protocol
-specific implementation details, as shown in the following tables.
+specific implementation details, as shown in the following table.  The
+table assumes that all peers enable or disable RM the same.
 
-| Resource | Unrel EP-RM Disabled| Unrel EP-RM Enabled | Rel EP-RM Disabled | Rel EP-RM Enabled |
+| Resource | DGRAM EP-no RM | DGRAM EP-with RM | RDM/MSG EP-no RM | RDM/MSG EP-with RM |
 |:--------:|:-------------------:|:-------------------:|:------------------:|:-----------------:|
-| Tx             | error            | EAGAIN           | error             | EAGAIN             |
-| Rx             | error            | EAGAIN           | error             | EAGAIN             |
-| Tx CQ          | error            | EAGAIN           | error             | EAGAIN             |
-| Rx CQ          | error            | EAGAIN or drop   | error             | EAGAIN or retry    |
-| Unmatched Recv | buffered or drop | buffered or drop | buffered or error | buffered or retry  |
-| Recv Overrun   | truncate or drop | truncate or drop | truncate or error | truncate or error  |
-| Unmatched RMA  | not applicable   | not applicable   | error             | error              |
-| RMA Overrun    | not applicable   | not applicable   | error             | error              |
+| Tx Ctx         | undefined error  | EAGAIN           | undefined error   | EAGAIN             |
+| Rx Ctx         | undefined error  | EAGAIN           | undefined error   | EAGAIN             |
+| Tx CQ          | undefined error  | EAGAIN           | undefined error   | EAGAIN             |
+| Rx CQ          | undefined error  | EAGAIN           | undefined error   | EAGAIN             |
+| Target EP      | dropped          | dropped          | transmit error    | retried            |
+| No Rx Buffer   | dropped          | dropped          | transmit error    | retried            |
+| Rx Buf Overrun | truncate or drop | truncate or drop | truncate or error | truncate or error  |
+| Unmatched RMA  | not applicable   | not applicable   | transmit error    | transmit error     |
+| RMA Overrun    | not applicable   | not applicable   | transmit error    | transmit error     |
 
 The resource column indicates the resource being accessed by a data
-transfer operation. Tx refers to the transmit context when a data
-transfer operation posted.  Rx refers to the receive context when
-receive data buffers are posted.  When RM is enabled, the
-provider will ensure that space is available to accept the operation.
-If space is not available, the operation will fail with -FI_EAGAIN.
-If resource management is disabled, the application is responsible for
-ensuring that there is space available before attempting to queue an
-operation.
+transfer operation.
 
-Tx CQ and Rx CQ refer to the completion queues associated with the
-transmit and receive contexts, respectively.  When RM is disabled,
-applications must take care to ensure that completion queues do not
-get overrun.  This can be accomplished by sizing the CQs appropriately
-or by deferring the posting of a data transfer operation unless CQ space
-is available to store its completion.  When RM is enabled, providers
-may use different mechanisms to prevent CQ overruns.  This includes
-failing (returning -FI_EAGAIN) the posting of operations that could
-result in CQ overruns, dropping received messages, or forcing requests
-to be retried.
+*Tx Ctx / Rx Ctx*
+: Refers to the transmit/receive contexts when a data transfer operation
+  is submitted.  When RM is enabled, attempting to submit a request will fail if
+  the context is full.  If RM is disabled, an undefined error (provider specific)
+  will occur.  Such errors should be considered fatal to the context,
+  and applications must take steps to avoid queue overruns.
 
-Unmatched receives and receive overruns deal with the processing of
-messages that consume a receive buffers.  Unmatched receives references
-incoming messages that are received by an endpoint, but do not have an
-application data buffer to consume.  No buffers may be available at the
-receive side, or buffers may available, but restricted from accepting
-the received message (such as being associated with different tags).
-Unmatched receives may be handled by protocol flow control, resulting
-in the message being retried.  For unreliable endpoints, unmatched
-messages are usually dropped, unless the provider can internally buffer
-the data.  An error will usually occur on a reliable endpoint if received
-data cannot be placed if RM is disabled, or the data cannot be received
-with RM enabled after retries have been exhausted.
+*Tx CQ / Rx CQ*
+: Refers to the completion queue associated with the Tx or Rx context when
+  a local operation completes.  When RM is disabled, applications must take
+  care to ensure that completion queues do not get overrun.  When an overrun
+  occurs, an undefined, but fatal, error will occur affecting all endpoints
+  associated with the CQ.  Overruns can be avoided by sizing the CQs
+  appropriately or by deferring the posting of a data transfer operation unless
+  CQ space is available to store its completion.  When RM is enabled, providers
+  may use different mechanisms to prevent CQ overruns.  This includes
+  failing (returning -FI_EAGAIN) the posting of operations that could
+  result in CQ overruns, or internally retrying requests (which will be hidden
+  from the application).  See notes at the end of this section regarding
+  CQ resource management restrictions.
 
-In some cases, buffering on the receive side may be available, but
-insufficient space may have been provided to receive the full message
-that was sent.  This is considered an error, however, rather than
-failing the operation, a provider may instead truncate the message and
-report the truncation to the app.
+*Target EP / No Rx Buffer*
+: Target EP refers to resources associated with the endpoint that is the target
+  of a transmit operation.  This includes the target endpoint's receive queue,
+  posted receive buffers (no Rx buffers), the receive side completion queue,
+  and other related packet processing queues.  The defined behavior is that
+  seen by the initiator of a request.  For FI_EP_DGRAM endpoints, if the target EP
+  queues are unable to accept incoming messages, received messages will
+  be dropped.  For reliable endpoints, if RM is disabled, the transmit
+  operation will complete in error.  If RM is enabled, the provider will
+  internally retry the operation.
 
-Unmatched RMA and RMA overruns deal with the processing of RMA and
-atomic operations that access registered memory buffers directly.
-RMA operations are not defined for unreliable endpoints.  For reliable
-endpoints, unmatched RMA and RMA overruns are both treated as errors.
+*Rx Buffer Overrun*
+: This refers to buffers posted to receive incoming tagged or untagged messages,
+  with the behavior defined from the viewpoint of the sender.  The behavior
+  for handling received messages that are larger than the buffers provided by
+  the application is provider specific.  Providers may either truncate the
+  message and report a successful completion, or fail the operation.  For
+  datagram endpoints, failed sends will result in the message being dropped.
+  For reliable endpoints, send operations may complete successfully,
+  yet be truncated at the receive side.  This can occur when the target side
+  buffers received data until an application buffer is made available.
+  The completion status may also be dependent upon the completion model selected
+  byt the application (e.g. FI_DELIVERY_COMPLETE versus FI_TRANSMIT_COMPLETE).
+
+*Unmatched RMA / RMA Overrun*
+: Unmatched RMA and RMA overruns deal with the processing of RMA and
+  atomic operations.  Unlike send operations, RMA operations that attempt
+  to access a memory address that is either not registered for such
+  operations, or attempt to access outside of the target memory region
+  will fail, resulting in a transmit error.
 
 When a resource management error occurs on an endpoint, the endpoint is
 transitioned into a disabled state.  Any operations which have not
@@ -367,6 +399,22 @@ already completed will fail and be discarded.  For unconnected endpoints,
 the endpoint must be re-enabled before it will accept new data transfer
 operations.  For connected endpoints, the connection is torn down and
 must be re-established.
+
+There is one notable restriction on the protections offered by resource
+management.  This occurs when resource management is enabled on an
+endpoint that has been bound to completion queue(s) using the
+FI_SELECTIVE_COMPLETION flag.  Operations posted to such an endpoint
+may specify that a successful completion should not generate a entry
+on the corresponding completion queue.  (I.e. the operation leaves the
+FI_COMPLETION flag unset).  In such situations, the provider is not
+required to reserve an entry in the completion queue to handle the
+case where the operation fails and does generate a CQ entry, which
+would effectively require tracking the operation to completion.
+Applications concerned with avoiding CQ overruns in the occurrence
+of errors must ensure that there is sufficient space in the CQ to
+report failed operations.  This can typically be achieved by sizing
+the CQ to at least the same size as the endpoint queue(s) that are
+bound to it.
 
 ## AV Type (av_type)
 
@@ -389,22 +437,68 @@ domain attribute av_type to the necessary value when calling fi_getinfo.
 The value FI_AV_UNSPEC may be used to indicate that the provider can support
 either address vector format.  In this case, a provider may return
 FI_AV_UNSPEC to indicate that either format is supportable, or may return
-another AV type to indicate the optimal AV type supported by this domain. 
+another AV type to indicate the optimal AV type supported by this domain.
 
 ## Memory Registration Mode (mr_mode)
 
-Specifies the method of memory registration that is used with this domain.
-For additional details on MR mode, see [`fi_mr`(3)](fi_mr.3.html).
+Defines memory registration specific mode bits used with this domain.
+Full details on MR mode options are available in [`fi_mr`(3)](fi_mr.3.html).
 The following values may be specified.
 
+*FI_MR_LOCAL*
+: The provider is optimized around having applications register memory
+  for locally accessed data buffers.  Data buffers used in send and
+  receive operations and as the source buffer for RMA and atomic
+  operations must be registered by the application for access domains
+  opened with this capability.
+
+*FI_MR_RAW*
+: The provider requires additional setup as part of their memory registration
+  process.  This mode is required by providers that use a memory key
+  that is larger than 64-bits.
+
+*FI_MR_VIRT_ADDR*
+: Registered memory regions are referenced by peers using the virtual address
+  of the registered memory region, rather than a 0-based offset.
+
+*FI_MR_ALLOCATED*
+: Indicates that memory registration occurs on allocated data buffers, and
+  physical pages must back all virtual addresses being registered.
+
+*FI_MR_PROV_KEY*
+: Memory registration keys are selected and returned by the provider.
+
+*FI_MR_MMU_NOTIFY*
+: Indicates that the application is responsible for notifying the provider
+  when the page tables referencing a registered memory region may have been
+  updated.
+
+*FI_MR_RMA_EVENT*
+: Indicates that the memory regions associated with completion counters
+  must be explicitly enabled after being bound to any counter.
+
+*FI_MR_ENDPOINT*
+: Memory registration occurs at the endpoint level, rather than domain.
+
 *FI_MR_UNSPEC*
-: Any memory registration mode is requested and supported.
+: Defined for compatibility -- library versions 1.4 and earlier.  Setting
+  mr_mode to 0 indicates that FI_MR_BASIC or FI_MR_SCALABLE are requested
+  and supported.
 
 *FI_MR_BASIC*
-: Only basic memory registration operations are requested or supported.
+: Defined for compatibility -- library versions 1.4 and earlier.  Only
+  basic memory registration operations are requested or supported.
+  This mode is equivalent to the FI_MR_VIRT_ADDR, FI_MR_ALLOCATED, and
+  FI_MR_PROV_KEY flags being set in later library versions.  This flag
+  may not be used in conjunction with other mr_mode bits.
 
 *FI_MR_SCALABLE*
-: Only scalable memory registration operations are requested or supported.
+: Defined for compatibility -- library versions 1.4 and earlier.
+  Only scalable memory registration operations
+  are requested or supported.  Scalable registration uses offset based
+  addressing, with application selectable memory keys.  For library versions
+  1.5 and later, this is the default if no mr_mode bits are set.  This
+  flag may not be used in conjunction with other mr_mode bits.
 
 Buffers used in data transfer operations may require notifying the provider
 of their use before a data transfer can occur.  The mr_mode field indicates
@@ -418,7 +512,8 @@ registration mode.
 
 Size of the memory region remote access key, in bytes.  Applications
 that request their own MR key must select a value within the range
-specified by this value.
+specified by this value.  Key sizes larger than 8 bytes require using the
+FI_RAW_KEY mode bit.
 
 ## CQ Data Size (cq_data_size)
 
@@ -435,7 +530,7 @@ at least 4-bytes.
 The optimal number of completion queues supported by the domain, relative
 to any specified or default CQ attributes.  The cq_cnt value may be a
 fixed value of the maximum number of CQs supported by the
-underlying provider, or may be a dynamic value, based on the default
+underlying hardware, or may be a dynamic value, based on the default
 attributes of an allocated CQ, such as the CQ size and data format.
 
 ## Endpoint Count (ep_cnt)
@@ -443,7 +538,7 @@ attributes of an allocated CQ, such as the CQ size and data format.
 The total number of endpoints supported by the domain, relative to any
 specified or default endpoint attributes.  The ep_cnt value may be a
 fixed value of the maximum number of endpoints supported by the
-underlying provider, or may be a dynamic value, based on the default
+underlying hardware, or may be a dynamic value, based on the default
 attributes of an allocated endpoint, such as the endpoint capabilities
 and size.  The endpoint count is the number of addressable endpoints
 supported by the provider.
@@ -491,6 +586,86 @@ shared transmit context.
 The maximum number of endpoints that may be associated with a
 shared receive context.
 
+## Counter Count (cntr_cnt)
+
+The optimal number of completion counters supported by the domain.
+The cq_cnt value may be a fixed value of the maximum number of counters
+supported by the underlying hardware, or may be a dynamic value, based on
+the default attributes of the domain.
+
+## MR IOV Limit (mr_iov_limit)
+
+This is the maximum number of IO vectors (scatter-gather elements)
+that a single memory registration operation may reference.
+
+## Capabilities (caps)
+
+Domain level capabilities.  Domain capabilities indicate domain
+level features that are supported by the provider.
+
+*FI_LOCAL_COMM*
+: At a conceptual level, this field indicates that the underlying device
+  supports loopback communication.  More specifically, this field
+  indicates that an endpoint may communicate with other endpoints that
+  are allocated from the same underlying named domain.  If this field
+  is not set, an application may need to use an alternate domain or
+  mechanism (e.g. shared memory) to communicate with peers that execute
+  on the same node.
+
+*FI_REMOTE_COMM*
+: This field indicates that the underlying provider supports communication
+  with nodes that are reachable over the network.  If this field is not set,
+  then the provider only supports communication between processes that
+  execute on the same node -- a shared memory provider, for example.
+
+*FI_SHARED_AV*
+: Indicates that the domain supports the ability to share address
+  vectors among multiple processes using the named address vector
+  feature.
+
+See [`fi_getinfo`(3)](fi_getinfo.3.html) for a discussion on primary versus
+secondary capabilities.  All domain capabilities are considered secondary
+capabilities.
+
+## mode
+
+The operational mode bit related to using the domain.
+
+*FI_RESTRICTED_COMP*
+: This bit indicates that the domain limits completion queues and counters
+  to only be used with endpoints, transmit contexts, and receive contexts that
+  have the same set of capability flags.
+
+## Default authorization key (auth_key)
+
+The default authorization key to associate with endpoint and memory
+registrations created within the domain. This field is ignored unless the
+fabric is opened with API version 1.5 or greater.
+
+## Default authorization key length (auth_key_size)
+
+The length in bytes of the default authorization key for the domain. If set to 0,
+then no authorization key will be associated with endpoints and memory
+registrations created within the domain unless specified in the endpoint or
+memory registration attributes. This field is ignored unless the fabric is
+opened with API version 1.5 or greater.
+
+## Max Error Data Size (max_err_data)
+: The maximum amount of error data, in bytes, that may be returned as part of
+  a completion or event queue error.  This value corresponds to the
+  err_data_size field in struct fi_cq_err_entry and struct fi_eq_err_entry.
+
+## Memory Regions Count (mr_cnt)
+
+The optimal number of memory regions supported by the domain, or endpoint if
+the mr_mode FI_MR_ENDPOINT bit has been set.  The mr_cnt
+value may be a fixed value of the maximum number of MRs supported by the
+underlying hardware, or may be a dynamic value, based on the default
+attributes of the domain, such as the supported memory registration modes.
+Applications can set the mr_cnt on input to fi_getinfo, in order to
+indicate their memory registration requirements.  Doing so may allow the
+provider to optimize any memory registration cache or lookup tables.
+
 # RETURN VALUE
 
 Returns 0 on success. On error, a negative value corresponding to fabric
@@ -502,9 +677,18 @@ errno is returned. Fabric errno values are defined in
 Users should call fi_close to release all resources allocated to the
 fabric domain.
 
-The following fabric resources are associated with access domains:
+The following fabric resources are associated with domains:
 active endpoints, memory regions, completion event queues, and address
 vectors.
+
+Domain attributes reflect the limitations and capabilities of the
+underlying hardware and/or software provider.  They do not reflect
+system limitations, such as the number of physical pages that an
+application may pin or number of file descriptors that the
+application may open.  As a result, the reported maximums may not be
+achievable, even on a lightly loaded systems, without an
+administrator configuring system resources appropriately for the
+installed provider(s).
 
 # SEE ALSO
 

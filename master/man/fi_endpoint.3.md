@@ -13,8 +13,9 @@ fi_endpoint / fi_scalable_ep / fi_passive_ep / fi_close
 :   Allocate or close an endpoint.
 
 fi_ep_bind
-:   Associate an endpoint with an event queue, completion queue,
-    counter, address vector, or memory region
+:   Associate an endpoint with hardware resources, such as event queues,
+    completion queues, counters, address vectors, or shared transmit/receive
+    contexts.
 
 fi_scalable_ep_bind
 :   Associate a scalable endpoint with an address vector
@@ -23,12 +24,12 @@ fi_pep_bind
 :   Associate a passive endpoint with an event queue
 
 fi_enable
-:   Transitions an endpoint into an active state.
+:   Transitions an active endpoint into an enabled state.
 
 fi_cancel
 :   Cancel a pending asynchronous data transfer
 
-fi_alias
+fi_ep_alias
 :   Create an alias to the endpoint
 
 fi_control
@@ -40,13 +41,14 @@ fi_getopt / fi_setopt
 fi_rx_context / fi_tx_context / fi_srx_context  / fi_stx_context
 :   Open a transmit or receive context.
 
-fi_rx_size_left / fi_tx_size_left
+fi_rx_size_left / fi_tx_size_left (DEPRECATED)
 :   Query the lower bound on how many RX/TX operations may be posted without
-    an operation returning -FI_EAGAIN.
+    an operation returning -FI_EAGAIN.  This functions have been deprecated
+    and will be removed in a future version of the library.
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fabric.h>
 
 #include <rdma/fi_endpoint.h>
@@ -88,27 +90,28 @@ int fi_enable(struct fid_ep *ep);
 
 int fi_cancel(struct fid_ep *ep, void *context);
 
-int fi_alias(struct fid_ep *ep, fid_t *alias_ep, uint64_t flags);
+int fi_ep_alias(struct fid_ep *ep, struct fid_ep **alias_ep, uint64_t flags);
 
 int fi_control(struct fid *ep, int command, void *arg);
 
-int fi_getopt(struct fid_ *ep, int level, int optname,
+int fi_getopt(struct fid *ep, int level, int optname,
     void *optval, size_t *optlen);
 
 int fi_setopt(struct fid *ep, int level, int optname,
     const void *optval, size_t optlen);
 
-ssize_t fi_rx_size_left(struct fid_ep *ep);
+DEPRECATED ssize_t fi_rx_size_left(struct fid_ep *ep);
 
-ssize_t fi_tx_size_left(struct fid_ep *ep);
-{% endhighlight %}
+DEPRECATED ssize_t fi_tx_size_left(struct fid_ep *ep);
+```
 
 # ARGUMENTS
 
 *fid*
 : On creation, specifies a fabric or access domain.  On bind,
-  identifies the event queue, completion queue or address vector to
-  bind to the endpoint. In other cases, it's a fabric identifier of an associated resource.
+  identifies the event queue, completion queue, counter, or address vector to
+  bind to the endpoint. In other cases, it's a fabric identifier of an
+  associated resource.
 
 *info*
 : Details about the fabric interface endpoint to be opened, obtained
@@ -157,9 +160,9 @@ ssize_t fi_tx_size_left(struct fid_ep *ep);
 
 Endpoints are transport level communication portals.  There are two
 types of endpoints: active and passive.  Passive endpoints belong to a
-fabric domain and are most often used to listen for incoming connection requests.
-However, a passive endpoint may be used to reserve a fabric address that
-can be granted to an active endpoint.  Active endpoints belong to access
+fabric domain and are most often used to listen for incoming connection
+requests.  However, a passive endpoint may be used to reserve a fabric address
+that can be granted to an active endpoint.  Active endpoints belong to access
 domains and can perform data transfers.
 
 Active endpoints may be connection-oriented or connectionless, and may
@@ -175,7 +178,7 @@ data are submitted to the receive queue.
 Active endpoints are created in the disabled state.  They must
 transition into an enabled state before accepting data transfer
 operations, including posting of receive buffers.  The fi_enable call
-is used to transition an endpoint into an active enabled state.  The
+is used to transition an active endpoint into an enabled state.  The
 fi_connect and fi_accept calls will also transition an endpoint into
 the enabled state, if it is not already active.
 
@@ -183,10 +186,16 @@ In order to transition an endpoint into an enabled state, it must be
 bound to one or more fabric resources.  An endpoint that will generate
 asynchronous completions, either through data transfer operations or
 communication establishment events, must be bound to the appropriate
-completion queues or event queues before being enabled.
+completion queues or event queues, respectively, before being enabled.
+Additionally, endpoints that use manual progress must be associated
+with relevant completion queues or event queues in order to drive
+progress.  For endpoints that are only used as the target of RMA or
+atomic operations, this means binding the endpoint to a completion
+queue associated with receive processing.  Unconnected endpoints must
+be bound to an address vector.
 
-Once an endpoint has been activated, it may be associated with memory
-regions and address vectors.  Receive buffers may be posted to it, and
+Once an endpoint has been activated, it may be associated with an address
+vector.  Receive buffers may be posted to it and
 calls may be made to connection establishment routines.
 Connectionless endpoints may also perform data transfers.
 
@@ -262,11 +271,13 @@ together when binding an endpoint to a completion domain CQ.
 *FI_TRANSMIT*
 : Directs the completion of outbound data transfer requests to the
   specified completion queue.  This includes send message, RMA, and
-  atomic operations.  The FI_SEND flag may be used interchangeably.
+  atomic operations.
 
 *FI_RECV*
 : Directs the notification of inbound data transfers to the specified
-  completion queue.  This includes received messages.
+  completion queue.  This includes received messages.  This binding
+  automatically includes FI_REMOTE_WRITE, if applicable to the
+  endpoint.
 
 *FI_SELECTIVE_COMPLETION*
 : By default, data transfer operations generate completion entries
@@ -275,7 +286,7 @@ together when binding an endpoint to a completion domain CQ.
   completions are generated.  If FI_SELECTIVE_COMPLETION is specified,
   data transfer operations will not generate entries for successful
   completions unless FI_COMPLETION is set as an operational flag for the
-  given operation.  FI_SELECTIVE_COMPLETION must be OR'ed with FI_SEND
+  given operation.  FI_SELECTIVE_COMPLETION must be OR'ed with FI_TRANSMIT
   and/or FI_RECV flags.
 
   When FI_SELECTIVE_COMPLETION is set, the user must determine when a
@@ -287,75 +298,82 @@ together when binding an endpoint to a completion domain CQ.
   Example: An application can selectively generate send completions by
   using the following general approach:
 
-  {% highlight c %}
+```c
   fi_tx_attr::op_flags = 0; // default - no completion
-  fi_ep_bind(ep, cq, FI_SEND | FI_SELECTIVE_COMPLETION);
+  fi_ep_bind(ep, cq, FI_TRANSMIT | FI_SELECTIVE_COMPLETION);
   fi_send(ep, ...);                   // no completion
   fi_sendv(ep, ...);                  // no completion
   fi_sendmsg(ep, ..., FI_COMPLETION); // completion!
   fi_inject(ep, ...);                 // no completion
-  {% endhighlight %}
+```
 
   Example: An application can selectively disable send completions by
   modifying the operational flags:
 
-  {% highlight c %}
+```c
   fi_tx_attr::op_flags = FI_COMPLETION; // default - completion
-  fi_ep_bind(ep, cq, FI_SEND | FI_SELECTIVE_COMPLETION);
+  fi_ep_bind(ep, cq, FI_TRANSMIT | FI_SELECTIVE_COMPLETION);
   fi_send(ep, ...);       // completion
   fi_sendv(ep, ...);      // completion
   fi_sendmsg(ep, ..., 0); // no completion!
   fi_inject(ep, ...);     // no completion!
-  {% endhighlight %}
+```
 
   Example: Omitting FI_SELECTIVE_COMPLETION when binding will generate
   completions for all non-fi_inject calls:
 
-  {% highlight c %}
+```c
   fi_tx_attr::op_flags = 0;
-  fi_ep_bind(ep, cq, FI_SEND);  // default - completion
+  fi_ep_bind(ep, cq, FI_TRANSMIT);    // default - completion
   fi_send(ep, ...);                   // completion
   fi_sendv(ep, ...);                  // completion
   fi_sendmsg(ep, ..., 0);             // completion!
   fi_sendmsg(ep, ..., FI_COMPLETION); // completion
   fi_sendmsg(ep, ..., FI_INJECT|FI_COMPLETION); // completion!
   fi_inject(ep, ...);                 // no completion!
-  {% endhighlight %}
+```
 
-An endpoint may also, or instead, be bound to a fabric counter.  When
+An endpoint may also be bound to a fabric counter.  When
 binding an endpoint to a counter, the following flags may be specified.
 
 *FI_SEND*
-: Increments the specified counter whenever a successful message is
-  transferred over the endpoint.  Sent messages include both tagged
-  and normal message operations.
+: Increments the specified counter whenever a message transfer initiated
+  over the endpoint has completed successfully or in error.  Sent messages
+  include both tagged and normal message operations.
 
 *FI_RECV*
-: Increments the specified counter whenever a successful message is
+: Increments the specified counter whenever a message is
   received over the endpoint.  Received messages include both tagged
   and normal message operations.
 
 *FI_READ*
-: Increments the specified counter whenever a successful RMA read or
-  atomic fetch operation is initiated from the endpoint.
+: Increments the specified counter whenever an RMA read or atomic fetch
+  operation initiated from the endpoint has completed successfully or
+  in error.
 
 *FI_WRITE*
-: Increments the specified counter whenever a successful RMA write or
-  atomic operation is initiated from the endpoint.
+: Increments the specified counter whenever an RMA write or atomic operation
+  initiated from the endpoint has completed successfully or in error.
 
 *FI_REMOTE_READ*
-: Increments the specified counter whenever a successful RMA read or
+: Increments the specified counter whenever an RMA read or
   atomic fetch operation is initiated from a remote endpoint that
   targets the given endpoint.  Use of this flag requires that the
   endpoint be created using FI_RMA_EVENT.
 
 *FI_REMOTE_WRITE*
-: Increments the specified counter whenever a successful RMA write or
+: Increments the specified counter whenever an RMA write or
   atomic operation is initiated from a remote endpoint that targets
   the given endpoint.  Use of this flag requires that the
   endpoint be created using FI_RMA_EVENT.
 
+An endpoint may only be bound to a single CQ or counter for a given
+type of operation.  For example, a EP may not bind to two counters
+both using FI_WRITE.  Furthermore, providers may limit CQ and counter
+bindings to endpoints of the same endpoint type (DGRAM, MSG, RDM, etc.).
+
 Connectionless endpoints must be bound to a single address vector.
+
 If an endpoint is using a shared transmit and/or receive context, the
 shared contexts must be bound to the endpoint.  CQs, counters, AV, and
 shared contexts must be bound to endpoints before they are enabled.
@@ -375,12 +393,14 @@ contexts created using the scalable endpoint.
 This call transitions the endpoint into an enabled state.  An endpoint
 must be enabled before it may be used to perform data transfers.
 Enabling an endpoint typically results in hardware resources being
-assigned to it.
+assigned to it.  Endpoints making use of completion queues, counters,
+event queues, and/or address vectors must be bound to them before being
+enabled.
 
 Calling connect or accept on an endpoint will implicitly enable an
 endpoint if it has not already been enabled.
 
-Fi_enable may also be used to re-enable an endpoint that has been
+fi_enable may also be used to re-enable an endpoint that has been
 disabled as a result of experiencing a critical error.  Applications
 should check the return value from fi_enable to see if a disabled
 endpoint has successfully be re-enabled.
@@ -390,22 +410,40 @@ endpoint has successfully be re-enabled.
 fi_cancel attempts to cancel an outstanding asynchronous operation.
 Canceling an operation causes the fabric provider to search for the
 operation and, if it is still pending, complete it as having been
-canceled.  If multiple outstanding operations match the context
-parameter, only one will be canceled.  In this case, the operation
-which is canceled is provider specific.  The cancel operation is
-asynchronous, but will complete within a bounded period of time.
+canceled. An error queue entry will be available in the
+associated error queue with error code FI_ECANCELED. On the other hand,
+if the operation completed before the call to fi_cancel, then the
+completion status of that operation will be available in the associated
+completion queue.  No specific entry related to fi_cancel itself will be posted.
 
-## fi_alias
+Cancel uses the context parameter associated with an operation to identify
+the request to cancel.  Operations posted without a valid context parameter --
+either no context parameter is specified or the context value was ignored
+by the provider -- cannot be canceled.  If multiple outstanding operations
+match the context parameter, only one will be canceled. In this case, the
+operation which is canceled is provider specific.
+The cancel operation is asynchronous, but will complete within a bounded
+period of time.
+
+## fi_ep_alias
 
 This call creates an alias to the specified endpoint.  Conceptually,
 an endpoint alias provides an alternate software path from the
-application to the underlying provider hardware.  Applications
-configure an alias endpoint with data transfer flags, specified
-through the fi_alias call.  Typically, the data transfer flags will be
-different than those assigned to the actual endpoint.  The alias
-mechanism allows a single endpoint to have multiple optimized software
-interfaces.  All allocated aliases must be closed for the underlying
-endpoint to be released.
+application to the underlying provider hardware.  An alias EP differs
+from its parent endpoint only by its default data transfer flags.  For
+example, an alias EP may be configured to use a different completion
+mode.  By default, an alias EP inherits the same data transfer flags
+as the parent endpoint.  An application can use fi_control to modify
+the alias EP operational flags.
+
+When allocating an alias, an application may configure either the transmit
+or receive operational flags.  This avoids needing a separate call to
+fi_control to set those flags.  The flags passed to fi_ep_alias must
+include FI_TRANSMIT or FI_RECV (not both) with other operational flags OR'ed
+in.  This will override the transmit or receive flags,
+respectively, for operations posted through the alias endpoint.
+All allocated aliases must be closed for the underlying endpoint to be
+released.
 
 ## fi_control
 
@@ -420,19 +458,31 @@ struct fi_info.  The following control commands and arguments may be
 assigned to an endpoint.
 
 **FI_GETOPSFLAG -- uint64_t *flags**
-: Used to retrieve the current value of flags associated with data
-  transfer operations initiated on the endpoint.  See below for a list
-  of control flags.
+: Used to retrieve the current value of flags associated with the data
+  transfer operations initiated on the endpoint. The control argument must
+  include FI_TRANSMIT or FI_RECV (not both) flags to indicate the type of
+  data transfer flags to be returned.
+  See below for a list of control flags.
 
 **FI_SETOPSFLAG -- uint64_t *flags**
 : Used to change the data transfer operation flags associated with an
-  endpoint.  The FI_READ, FI_WRITE, FI_SEND, FI_RECV flags indicate
-  the type of data transfer that the flags should apply to, with other
-  flags OR'ed in.  Valid control flags are defined below.
+  endpoint. The control argument must include FI_TRANSMIT or FI_RECV (not both)
+  to indicate the type of data transfer that the flags should apply to, with other
+  flags OR'ed in. The given flags will override the previous transmit and receive
+  attributes that were set when the endpoint was created.
+  Valid control flags are defined below.
 
 **FI_BACKLOG - int *value**
 : This option only applies to passive endpoints.  It is used to set the
   connection request backlog for listening endpoints.
+
+*FI_GETWAIT (void \*\*)*
+: This command allows the user to retrieve the file descriptor associated
+  with a socket endpoint.  The fi_control arg parameter should be an address
+  where a pointer to the returned file descriptor will be written.  See fi_eq.3
+  for addition details using fi_control with FI_GETWAIT.  The file descriptor
+  may be used for notification that the endpoint is ready to send or receive
+  data.
 
 ## fi_getopt / fi_setopt
 
@@ -448,7 +498,7 @@ The following option levels and option names and parameters are defined.
 
 - *FI_OPT_MIN_MULTI_RECV - size_t*
 : Defines the minimum receive buffer space available when the receive
-  buffer is automatically freed (see FI_MULTI_RECV).  Modifying this
+  buffer is released by the provider (see FI_MULTI_RECV).  Modifying this
   value is only guaranteed to set the minimum buffer space needed on
   receives posted after the value has been changed.  It is recommended
   that applications that want to override the default MIN_MULTI_RECV
@@ -456,11 +506,17 @@ The following option levels and option names and parameters are defined.
 
 - *FI_OPT_CM_DATA_SIZE - size_t*
 : Defines the size of available space in CM messages for user-defined
-  data.  This value limits the amount of data that applications can
-  exchange between peer endpoints using the fi_connect, fi_accept,
-  and fi_reject operations.  This option is read only.
+  data.  This value limits the amount of data that applications can exchange
+  between peer endpoints using the fi_connect, fi_accept, and fi_reject
+  operations.  The size returned is dependent upon the properties of the
+  endpoint, except in the case of passive endpoints, in which the size reflects
+  the maximum size of the data that may be present as part of a connection
+  request event. This option is read only.
 
-## fi_rx_size_left
+## fi_rx_size_left (DEPRECATED)
+
+This function has been deprecated and will be removed in a future version
+of the library.  It may not be supported by all providers.
 
 The fi_rx_size_left call returns a lower bound on the number of receive
 operations that may be posted to the given endpoint without that operation
@@ -469,7 +525,10 @@ posted receive operations (e.g., number of iov entries, which receive function
 is called, etc.), it may be possible to post more receive operations than
 originally indicated by fi_rx_size_left.
 
-## fi_tx_size_left
+## fi_tx_size_left (DEPRECATED)
+
+This function has been deprecated and will be removed in a future version
+of the library.  It may not be supported by all providers.
 
 The fi_tx_size_left call returns a lower bound on the number of transmit
 operations that may be posted to the given endpoint without that operation
@@ -497,6 +556,8 @@ struct fi_ep_attr {
 	uint64_t        mem_tag_format;
 	size_t          tx_ctx_cnt;
 	size_t          rx_ctx_cnt;
+	size_t          auth_key_size;
+	uint8_t         *auth_key;
 };
 {% endhighlight %}
 
@@ -523,6 +584,20 @@ desired.  Supported types are:
 : Reliable datagram message.  Provides a reliable, unconnected data
   transfer service with flow control that maintains message
   boundaries.
+
+*FI_EP_SOCK_STREAM*
+: Data streaming endpoint with TCP socket-like semantics.  Provides
+  a reliable, connection-oriented data transfer service that does
+  not maintain message boundaries.  FI_EP_SOCK_STREAM is most useful for
+  applications designed around using TCP sockets.  See the SOCKET
+  ENDPOINT section for additional details and restrictions that apply
+  to stream endpoints.
+
+*FI_EP_SOCK_DGRAM*
+: A connectionless, unreliable datagram endpoint with UDP socket-like
+  semantics.  FI_EP_SOCK_DGRAM is most useful for applications designed
+  around using UDP sockets.  See the SOCKET ENDPOINT section for additional
+  details and restrictions that apply to datagram socket endpoints.
 
 ## Protocol
 
@@ -561,6 +636,37 @@ protocol value set to one.
 
 *FI_PROTO_SOCK_TCP*
 : The protocol is layered over TCP packets.
+
+*FI_PROTO_IWARP_RDM*
+: Reliable-datagram protocol implemented over iWarp reliable-connected
+  queue pairs.
+
+*FI_PROTO_IB_RDM*
+: Reliable-datagram protocol implemented over InfiniBand reliable-connected
+  queue pairs.
+
+*FI_PROTO_GNI*
+: Protocol runs over Cray GNI low-level interface.
+
+*FI_PROTO_RXM*
+: Reliable-datagram protocol implemented over message endpoints.  RXM is
+  a libfabric utility component that adds RDM endpoint semantics over
+  MSG endpoint semantics.
+
+*FI_PROTO_RXD*
+: Reliable-datagram protocol implemented over datagram endpoints.  RXD is
+  a libfabric utility component that adds RDM endpoint semantics over
+  DGRAM endpoint semantics.
+
+*FI_PROTO_NETWORKDIRECT*
+: Protocol runs over Microsoft NetworkDirect service provider interface.
+  This adds reliable-datagram semantics over the NetworkDirect connection-
+  oriented endpoint semantics.
+
+*FI_PROTO_PSMX2*
+: The protocol is based on an Intel proprietary protocol known as PSM2,
+  performance scaled messaging version 2.  PSMX2 is an extended version of the
+  PSM2 protocol to support the libfabric interfaces.
 
 ## protocol_version - Protocol Version
 
@@ -610,20 +716,21 @@ if data ordering is not maintained, message ordering may be.
 *max_order_raw_size*
 : Read after write size.  If set, an RMA or atomic read operation
   issued after an RMA or atomic write operation, both of which are
-  smaller than the size, will be ordered.  The RMA or atomic read
-  operation will see the results of the previous RMA or atomic write.
+  smaller than the size, will be ordered. Where the target memory
+  locations overlap, the RMA or atomic read operation will see the
+  results of the previous RMA or atomic write.
 
 *max_order_war_size*
 : Write after read size.  If set, an RMA or atomic write operation
   issued after an RMA or atomic read operation, both of which are
   smaller than the size, will be ordered.  The RMA or atomic read
-  operation will see the initial value of the target memory region
+  operation will see the initial value of the target memory location
   before a subsequent RMA or atomic write updates the value.
 
 *max_order_waw_size*
 : Write after write size.  If set, an RMA or atomic write operation
   issued after an RMA or atomic write operation, both of which are
-  smaller than the size, will be ordered.  The target memory region
+  smaller than the size, will be ordered.  The target memory location
   will reflect the results of the second RMA or atomic write.
 
 An order size value of 0 indicates that ordering is not guaranteed.
@@ -657,7 +764,7 @@ must return a tag format that supports the requested number of fields,
 with each field being at least the size requested, or fail the
 request.  A provider may increase the size of the fields. When reporting
 completions (see FI_CQ_FORMAT_TAGGED), the provider must provide the 
-exact value of the recieved tag, clearing out any unsupported tag bits. 
+exact value of the received tag, clearing out any unsupported tag bits.
 
 It is recommended that field sizes be ordered from smallest to
 largest.  A generic, unstructured tag and mask can be achieved by
@@ -699,6 +806,24 @@ fail the request.
 See the scalable endpoint and shared contexts sections for additional
 details.
 
+## auth_key_size - Authorization Key Length
+
+The length of the authorization key in bytes.  This field will be 0 if
+authorization keys are not available or used.  This field is ignored 
+unless the fabric is opened with API version 1.5 or greater.
+
+## auth_key - Authorization Key
+
+If supported by the fabric, an authorization key (a.k.a. job
+key) to associate with the endpoint.  An authorization key is used
+to limit communication between endpoints.  Only peer endpoints that are
+programmed to use the same authorization key may communicate.
+Authorization keys are often used to implement job keys, to ensure
+that processes running in different jobs do not accidentally
+cross traffic.  The domain authorization key will be used if auth_key_size 
+is set to 0.  This field is ignored unless the fabric is opened with API
+version 1.5 or greater. 
+
 # TRANSMIT CONTEXT ATTRIBUTES
 
 Attributes specific to the transmit capabilities of an endpoint are
@@ -722,7 +847,7 @@ struct fi_tx_attr {
 
 The requested capabilities of the context.  The capabilities must be
 a subset of those requested of the associated endpoint.  See the
-CAPABILITIES section if fi_getinfo(3) for capability details.  If
+CAPABILITIES section of fi_getinfo(3) for capability details.  If
 the caps field is 0 on input to fi_getinfo(3), the caps value from the
 fi_info structure will be used.
 
@@ -765,7 +890,8 @@ transfer operation in order to guarantee that ordering is met.
 
 *FI_ORDER_NONE*
 : No ordering is specified.  This value may be used as input in order
-  to obtain the default message order supported by the provider.
+  to obtain the default message order supported by the provider. FI_ORDER_NONE
+  is an alias for the value 0.
 
 *FI_ORDER_RAR*
 : Read after read.  If set, RMA and atomic read operations are
@@ -956,12 +1082,21 @@ the _Transmit Context Attribute_ section.
 
 ## total_buffered_recv
 
-Defines the total available space allocated by the provider to buffer messages
-that are received for which there is no matching receive operation.  If set to
-0, and the domain does not support FI_RM_ENABLED, any messages that arrive
-before a receive buffer has been posted are lost. When the domain supports
-FI_RM_ENABLED, the actual amount of buffering provided may exceed the value
-specified in total_buffered_recv.
+This field is supported for backwards compatibility purposes.
+It is a hint to the provider of the total available space
+that may be needed to buffer messages that are received for which there
+is no matching receive operation.  The provider may adjust or ignore
+this value.  The allocation of internal network buffering among received
+message is provider specific.  For instance, a provider may limit the size
+of messages which can be buffered or the amount of buffering allocated to
+a single message.
+
+If receive side buffering is disabled (total_buffered_recv = 0)
+and a message is received by an endpoint, then the behavior is dependent on
+whether resource management has been enabled (FI_RM_ENABLED has be set or not).
+See the Resource Management section of fi_domain.3 for further clarification.
+It is recommended that applications enable resource management if they
+anticipate receiving unexpected messages, rather than modifying this value.
 
 ## size
 
@@ -994,15 +1129,19 @@ create transmit and receive contexts as described below.
 Transmit contexts are independent transmit queues.  Ordering and
 synchronization between contexts are not defined.  Conceptually a
 transmit context behaves similar to a send-only endpoint.  A transmit
-context may be configured with relaxed capabilities, and has its own
-completion queue.  The number of transmit contexts associated with an
-endpoint is specified during endpoint creation.
+context may be configured with fewer capabilities than the base
+endpoint and with different attributes (such as ordering requirements
+and inject size) than other contexts associated with the same scalable
+endpoint.  Each transmit context has its own completion queue.  The
+number of transmit contexts associated with an endpoint is specified
+during endpoint creation.
 
 The fi_tx_context call is used to retrieve a specific context,
-identified by an index.  Providers may dynamically allocate contexts
-when fi_tx_context is called, or may statically create all contexts
-when fi_endpoint is invoked.  By default, a transmit context inherits
-the properties of its associated endpoint.  However, applications may
+identified by an index (see above for details on transmit context
+attributes).  Providers may dynamically allocate contexts when
+fi_tx_context is called, or may statically create all contexts when
+fi_endpoint is invoked.  By default, a transmit context inherits the
+properties of its associated endpoint.  However, applications may
 request context specific attributes through the attr parameter.
 Support for per transmit context attributes is provider specific and
 not guaranteed.  Providers will return the actual attributes assigned
@@ -1013,10 +1152,12 @@ to the context through the attr parameter, if provided.
 Receive contexts are independent receive queues for receiving incoming
 data.  Ordering and synchronization between contexts are not
 guaranteed.  Conceptually a receive context behaves similar to a
-receive-only endpoint.  A receive context may be configured with
-relaxed endpoint capabilities, and has its own completion queue.  The
-number of receive contexts associated with an endpoint is specified
-during endpoint creation.
+receive-only endpoint.  A receive context may be configured with fewer
+capabilities than the base endpoint and with different attributes
+(such as ordering requirements and inject size) than other contexts
+associated with the same scalable endpoint.  Each receive context has
+its own completion queue.  The number of receive contexts associated
+with an endpoint is specified during endpoint creation.
 
 Receive contexts are often associated with steering flows, that
 specify which incoming packets targeting a scalable endpoint to
@@ -1028,10 +1169,11 @@ endpoint is created.  Support for named receive contexts is
 coordinated with address vectors.  See fi_av(3) and fi_rx_addr(3).
 
 The fi_rx_context call is used to retrieve a specific context,
-identified by an index.  Providers may dynamically allocate contexts
-when fi_rx_context is called, or may statically create all contexts
-when fi_endpoint is invoked.  By default, a receive context inherits
-the properties of its associated endpoint.  However, applications may
+identified by an index (see above for details on receive context
+attributes).  Providers may dynamically allocate contexts when
+fi_rx_context is called, or may statically create all contexts when
+fi_endpoint is invoked.  By default, a receive context inherits the
+properties of its associated endpoint.  However, applications may
 request context specific attributes through the attr parameter.
 Support for per receive context attributes is provider specific and
 not guaranteed.  Providers will return the actual attributes assigned
@@ -1040,15 +1182,15 @@ to the context through the attr parameter, if provided.
 # SHARED CONTEXTS
 
 Shared contexts are transmit and receive contexts explicitly shared
-among one or more endpoints.  A sharable context allows an application
+among one or more endpoints.  A shareable context allows an application
 to use a single dedicated provider resource among multiple transport
 addressable endpoints.  This can greatly reduce the resources needed
 to manage communication over multiple endpoints by multiplexing
 transmit and/or receive processing, with the potential cost of
-serializing access across multiple endpoints.  Support for sharable
+serializing access across multiple endpoints.  Support for shareable
 contexts is domain specific.
 
-Conceptually, sharable transmit contexts are transmit queues that may be
+Conceptually, shareable transmit contexts are transmit queues that may be
 accessed by many endpoints.  The use of a shared transmit context is
 mostly opaque to an application.  Applications must allocate and bind
 shared transmit contexts to endpoints, but operations are posted
@@ -1077,20 +1219,58 @@ alternate type.
 
 ## fi_stx_context
 
-This call is used to open a sharable transmit context.  See
-fi_tx_context call under the SCALABLE ENDPOINTS section for details on
-the transit context attributes.  The exception is that endpoints
-attached to a shared transmit context must use a subset of the
-transmit context attributes.  This is opposite of the requirement for
-scalable endpoints.
+This call is used to open a shareable transmit context (see above for
+details on the transmit context attributes).  Endpoints associated
+with a shared transmit context must use a subset of the transmit
+context's attributes.  Note that this is the reverse of the
+requirement for transmit contexts for scalable endpoints.
 
 ## fi_srx_context
 
-This allocates a sharable receive context.  See fi_rx_context call
-under SCALABLE ENDPOINTS section for details on the receive context
-attributes.  The exception is that endpoints attached to a shared
-receive context must use a subset of the receive context attributes.
-This is opposite of the requirement for scalable endpoints.
+This allocates a shareable receive context (see above for details on
+the receive context attributes).  Endpoints associated with a shared
+receive context must use a subset of the receive context's attributes.
+Note that this is the reverse of the requirement for receive contexts
+for scalable endpoints.
+
+# SOCKET ENDPOINTS
+
+The following feature and description should be considered experimental.
+Until the experimental tag is removed, the interfaces, semantics, and data
+structures associated with socket endpoints may change between library
+versions.
+
+This section applies to endpoints of type FI_EP_SOCK_STREAM and
+FI_EP_SOCK_DGRAM, commonly referred to as socket endpoints.
+
+Socket endpoints are defined with semantics that allow them to more
+easily be adopted by developers familiar with the UNIX socket API, or
+by middleware that exposes the socket API, while still taking advantage
+of high-performance hardware features.
+
+The key difference between socket endpoints and other active endpoints
+are socket endpoints use synchronous data transfers.  Buffers passed
+into send and receive operations revert to the control of the application
+upon returning from the function call.  As a result, no data transfer
+completions are reported to the application, and socket endpoints are not
+associated with completion queues or counters.
+
+Socket endpoints support a subset of message operations: fi_send,
+fi_sendv, fi_sendmsg, fi_recv, fi_recvv, fi_recvmsg, and fi_inject.
+Because data transfers are synchronous, the return value from send and receive
+operations indicate the number of bytes transferred on success, or a negative
+value on error, including -FI_EAGAIN if the endpoint cannot send or
+receive any data because of full or empty queues, respectively.
+
+Socket endpoints are associated with event queues and address vectors, and
+process connection management events asynchronously, similar to other endpoints.
+Unlike UNIX sockets, socket endpoint must still be declared as either active
+or passive.
+
+Socket endpoints behave like non-blocking sockets.  In order to support
+select and poll semantics, active socket endpoints are associated with a
+file descriptor that is signaled whenever the endpoint is ready to send
+and/or receive data.  The file descriptor may be retrieved using fi_control.
 
 # OPERATION FLAGS
 
@@ -1098,15 +1278,17 @@ Operation flags are obtained by OR-ing the following flags together.
 Operation flags define the default flags applied to an endpoint's data
 transfer operations, where a flags parameter is not available.  Data
 transfer operations that take flags as input override the op_flags
-value of an endpoint.
+value of transmit or receive context attributes of an endpoint.
 
 *FI_INJECT*
 : Indicates that all outbound data buffers should be returned to the
   user's control immediately after a data transfer call returns, even
   if the operation is handled asynchronously.  This may require that
   the provider copy the data into a local buffer and transfer out of
-  that buffer.  A provider may limit the total amount of send data
-  that may be buffered and/or the size of a single send.
+  that buffer.  A provider can limit the total amount of send data
+  that may be buffered and/or the size of a single send that can use
+  this flag. This limit is indicated using inject_size (see inject_size
+  above).
 
 *FI_MULTI_RECV*
 : Applies to posted receive operations.  This flag allows the user to
@@ -1116,14 +1298,16 @@ value of an endpoint.
   posted receive operation to generate multiple completions as
   messages are placed into the buffer.  The placement of received data
   into the buffer may be subjected to provider specific alignment
-  restrictions.  The buffer will be returned to the application's
-  control, and an *FI_MULTI_RECV* completion will be generated, when a
-  message is received that cannot fit into the remaining free buffer
-  space.
+  restrictions.  The buffer will be released by the provider when the
+  available buffer space falls below the specified minimum (see
+  FI_OPT_MIN_MULTI_RECV).
 
 *FI_COMPLETION*
 : Indicates that a completion entry should be generated for data
-  transfer operations.
+  transfer operations. This flag only applies to operations issued on
+  endpoints that were bound to a CQ or counter with the 
+  FI_SELECTIVE_COMPLETION flag. See the fi_ep_bind section above for more
+  detail.
 
 *FI_INJECT_COMPLETE*
 : Indicates that a completion should be generated when the
@@ -1134,7 +1318,8 @@ value of an endpoint.
 
   Note: This flag is used to control when a completion entry is inserted
   into a completion queue.  It does not apply to operations that do not
-  generate a completion queue entry, such as the fi_inject operation.
+  generate a completion queue entry, such as the fi_inject operation, and
+  is not subject to the inject_size message limit restriction.
 
 *FI_TRANSMIT_COMPLETE*
 : Indicates that a completion should be generated when the transmit
@@ -1165,6 +1350,21 @@ value of an endpoint.
   the source endpoint is also considered a destination endpoint.  This is the
   default completion mode for such operations.
 
+*FI_COMMIT_COMPLETE*
+: Indicates that a completion should not be generated (locally or at the
+  peer) until the result of an operation have been made persistent.
+  A completion guarantees that the result is both available and durable,
+  in the case of power failure.
+
+  This completion mode applies only to operations that target persistent
+  memory regions over reliable endpoints.  This completion mode is
+  experimental.
+
+*FI_MULTICAST*
+: Indicates that data transfers will target multicast addresses by default.
+  Any fi_addr_t passed into a data transfer operation will be treated as a
+  multicast address.
+
 # NOTES
 
 Users should call fi_close to release all resources allocated to the
@@ -1182,14 +1382,26 @@ Operations that complete in error that are not associated with valid
 operational context will use the endpoint context in any error
 reporting structures.
 
-Although applications typically association individual completions with
+Although applications typically associate individual completions with
 either completion queues or counters, an endpoint can be attached to
 both a counter and completion queue.  When combined with using
-selective completions, this allows an appliction to use counters to
+selective completions, this allows an application to use counters to
 track successful completions, with a CQ used to report errors.
 Operations that complete with an error increment the error counter
 and generate a completion event.  The generation of entries going to
 the CQ can then be controlled using FI_SELECTIVE_COMPLETION.
+
+As mentioned in fi_getinfo(3), the ep_attr structure can be used to
+query providers that support various endpoint attributes. fi_getinfo
+can return provider info structures that can support the minimal set
+of requirements (such that the application maintains correctness).
+However, it can also return provider info structures that exceed
+application requirements. As an example, consider an application
+requesting msg_order as FI_ORDER_NONE. The resulting output from
+fi_getinfo may have all the ordering bits set. The application can reset
+the ordering bits it does not require before creating the endpoint.
+The provider is free to implement a stricter ordering than is
+required by the application.
 
 # RETURN VALUES
 

@@ -18,7 +18,7 @@ fi_inject / fi_senddata
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fi_endpoint.h>
 
 ssize_t fi_recv(struct fid_ep *ep, void * buf, size_t len,
@@ -30,7 +30,7 @@ ssize_t fi_recvv(struct fid_ep *ep, const struct iovec *iov, void **desc,
 ssize_t fi_recvmsg(struct fid_ep *ep, const struct fi_msg *msg,
 	uint64_t flags);
 
-ssize_t fi_send(struct fid_ep *ep, void *buf, size_t len,
+ssize_t fi_send(struct fid_ep *ep, const void *buf, size_t len,
 	void *desc, fi_addr_t dest_addr, void *context);
 
 ssize_t fi_sendv(struct fid_ep *ep, const struct iovec *iov,
@@ -39,15 +39,15 @@ ssize_t fi_sendv(struct fid_ep *ep, const struct iovec *iov,
 ssize_t fi_sendmsg(struct fid_ep *ep, const struct fi_msg *msg,
 	uint64_t flags);
 
-ssize_t fi_inject(struct fid_ep *ep, void *buf, size_t len,
+ssize_t fi_inject(struct fid_ep *ep, const void *buf, size_t len,
 	fi_addr_t dest_addr);
 
-ssize_t fi_senddata(struct fid_ep *ep, void *buf, size_t len,
+ssize_t fi_senddata(struct fid_ep *ep, const void *buf, size_t len,
 	void *desc, uint64_t data, fi_addr_t dest_addr, void *context);
 
-ssize_t fi_injectdata(struct fid_ep *ep, void *buf, size_t len,
+ssize_t fi_injectdata(struct fid_ep *ep, const void *buf, size_t len,
 	uint64_t data, fi_addr_t dest_addr);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -109,6 +109,12 @@ Similar to the send operations, receive operations operate
 asynchronously.  Users should not touch the posted data buffer(s)
 until the receive operation has completed.
 
+An endpoint must be enabled before an application can post send
+or receive operations to it.  For connected endpoints, receive
+buffers may be posted prior to connect or accept being called on
+the endpoint.  This ensures that buffers are available to receive
+incoming data immediately after the connection has been established.
+
 Completed message operations are reported to the user through one or
 more event collectors associated with the endpoint.  Users provide
 context which are associated with each operation, and is returned to
@@ -119,11 +125,11 @@ event details.
 
 The call fi_send transfers the data contained in the user-specified
 data buffer to a remote endpoint, with message boundaries being
-maintained.  The local endpoint must be connected to a remote endpoint
-or destination before fi_send is called.  Unless the endpoint has been
-configured differently, the data buffer passed into fi_send must not
-be touched by the application until the fi_send call completes
-asynchronously.
+maintained.  For connection based endpoints (FI_EP_MSG) the local
+endpoint must be connected to a remote endpoint or destination before
+fi_send is called.  Unless the endpoint has been configured
+differently, the data buffer passed into fi_send must not be touched
+by the application until the fi_send call completes asynchronously.
 
 ## fi_sendv
 
@@ -139,7 +145,7 @@ unconnected endpoints, with the ability to control the send operation
 per call through the use of flags.  The fi_sendmsg function takes a
 `struct fi_msg` as input.
 
-{% highlight c %}
+```c
 struct fi_msg {
 	const struct iovec *msg_iov; /* scatter-gather array */
 	void               **desc;   /* local request descriptors */
@@ -148,7 +154,7 @@ struct fi_msg {
 	void               *context; /* user-defined context */
 	uint64_t           data;     /* optional message data */
 };
-{% endhighlight %}
+```
 
 ## fi_inject
 
@@ -159,7 +165,9 @@ available for reuse immediately on returning from from fi_inject, and
 no completion event will be generated for this send.  The completion
 event will be suppressed even if the CQ was bound without
 FI_SELECTIVE_COMPLETION or the endpoint's op_flags contain
-FI_COMPLETION.  See the flags discussion below for more details.
+FI_COMPLETION.  See the flags discussion below for more details. The
+requested message size that can be used with fi_inject is limited
+by inject_size.
 
 ## fi_senddata
 
@@ -229,7 +237,8 @@ fi_sendmsg.
   should be returned to user immediately after the send call returns,
   even if the operation is handled asynchronously.  This may require
   that the underlying provider implementation copy the data into a
-  local buffer and transfer out of that buffer.
+  local buffer and transfer out of that buffer. This flag can only
+  be used with messages smaller than inject_size.
 
 *FI_MULTI_RECV*
 : Applies to posted receive operations.  This flag allows the user to
@@ -239,9 +248,14 @@ fi_sendmsg.
   posted receive operation to generate multiple events as messages are
   placed into the buffer.  The placement of received data into the
   buffer may be subjected to provider specific alignment restrictions.
-  The buffer will be freed from the endpoint when the available buffer
-  space falls below the network's MTU size (see
-  FI_OPT_MIN_MULTI_RECV).
+
+  The buffer will be released by the provider when the available buffer
+  space falls below the specified minimum (see FI_OPT_MIN_MULTI_RECV).
+  Note that an entry to the associated receive completion queue will
+  always be generated when the buffer has been consumed, even if other
+  receive completions have been suppressed (i.e. the Rx context has been
+  configured for FI_SELECTIVE_COMPLETION).  See the FI_MULTI_RECV
+  completion flag [`fi_cq`(3)](fi_cq.3.html).
 
 *FI_INJECT_COMPLETE*
 : Applies to fi_sendmsg.  Indicates that a completion should be
@@ -258,8 +272,21 @@ fi_sendmsg.
 
 *FI_FENCE*
 : Applies to transmits.  Indicates that the requested operation, also
-  known as the fenced operation, be deferred until all previous operations
-  targeting the same target endpoint have completed.
+  known as the fenced operation, and any operation posted after the
+  fenced operation will be deferred until all previous operations
+  targeting the same peer endpoint have completed.  Operations posted
+  after the fencing will see and/or replace the results of any
+  operations initiated prior to the fenced operation.
+  
+  The ordering of operations starting at the posting of the fenced
+  operation (inclusive) to the posting of a subsequent fenced operation
+  (exclusive) is controlled by the endpoint's ordering semantics.
+
+*FI_MULTICAST*
+: Applies to transmits.  This flag indicates that the address specified
+  as the data transfer destination is a multicast address.  This flag must
+  be used in all multicast transfers, in conjunction with a multicast
+  fi_addr_t.
 
 # NOTES
 
@@ -276,15 +303,32 @@ Returns 0 on success. On error, a negative value corresponding to fabric
 errno is returned. Fabric errno values are defined in
 `rdma/fi_errno.h`.
 
+See the discussion below for details handling FI_EAGAIN.
+
 # ERRORS
 
 *-FI_EAGAIN*
 : Indicates that the underlying provider currently lacks the resources
-  needed to initiate the requested operation.  This may be the result
-  of insufficient internal buffering, in the case of FI_INJECT,
-  or processing queues are full.  The operation may be retried after
-  additional provider resources become available, usually through the
-  completion of currently outstanding operations.
+  needed to initiate the requested operation.  The reasons for a provider
+  returning FI_EAGAIN are varied.  However, common reasons include
+  insufficient internal buffering or full processing queues.
+
+  Insufficient internal buffering is often associated with operations that
+  use FI_INJECT.  In such cases, additional buffering may become available as
+  posted operations complete.
+
+  Full processing queues may be a temporary state related to local
+  processing (for example, a large message is being transferred), or may be
+  the result of flow control.  In the latter case, the queues may remain
+  blocked until additional resources are made available at the remote side
+  of the transfer.
+
+  In all cases, the operation may be retried after additional resources become
+  available.  It is strongly recommended that applications check for transmit
+  and receive completions after receiving FI_EAGAIN as a return value,
+  independent of the operation which failed.  This is particularly important
+  in cases where manual progress is employed, as acknowledgements or flow
+  control messages may need to be processed in order to resume execution.
 
 # SEE ALSO
 

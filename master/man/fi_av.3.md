@@ -26,7 +26,7 @@ fi_av_straddr
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fi_domain.h>
 
 int fi_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
@@ -57,8 +57,8 @@ fi_addr_t fi_rx_addr(fi_addr_t fi_addr, int rx_index,
 	  int rx_ctx_bits);
 
 const char * fi_av_straddr(struct fid_av *av, const void *addr,
-      void *buf, size_t *len);
-{% endhighlight %}
+      char *buf, size_t *len);
+```
 
 # ARGUMENTS
 
@@ -111,7 +111,7 @@ must first bind an event queue to the AV before inserting addresses.
 fi_av_open allocates or opens an address vector.  The properties and
 behavior of the address vector are defined by `struct fi_av_attr`.
 
-{% highlight c %}
+```c
 struct fi_av_attr {
 	enum fi_av_type  type;        /* type of AV */
 	int              rx_ctx_bits; /* address bits to identify rx ctx */
@@ -121,7 +121,7 @@ struct fi_av_attr {
 	void             *map_addr;   /* base mmap address */
 	uint64_t         flags;       /* operation flags */
 };
-{% endhighlight %}
+```
 
 *type*
 : An AV type corresponds to a conceptual implementation of an address
@@ -152,6 +152,10 @@ struct fi_av_attr {
   of the first address inserted into an FI_AV_TABLE will be 0, and
   successive insertions will be given sequential indices.  Sequential
   indices will be assigned across insertion calls on the same AV.
+
+- *FI_AV_UNSPEC*
+: Provider will choose its preferred AV type. The AV type used will 
+  be returned through the type field in fi_av_attr.
 
 *Receive Context Bits (rx_ctx_bits)*
 : The receive context bits field is only for use with scalable
@@ -262,7 +266,8 @@ close, the call will return -FI_EBUSY.
 Associates an event queue with the AV.  If an AV has been opened with
 `FI_EVENT`, then an event queue must be bound to the AV before any
 insertion calls are attempted.  Any calls to insert addresses before
-an event queue has been bound will fail with `-FI_ENOEQ`.
+an event queue has been bound will fail with `-FI_ENOEQ`.  Flags are
+reserved for future use and must be 0.
 
 ## fi_av_insert
 
@@ -270,8 +275,9 @@ The fi_av_insert call inserts zero or more addresses into an AV.  The
 number of addresses is specified through the count parameter.  The
 addr parameter references an array of addresses to insert into the AV.
 Addresses inserted into an address vector must be in the same format
-as specified in struct fi_info:addr_format for the corresponding
-domain.
+as specified in the addr_format field of the fi_info struct provided when
+opening the corresponding domain. When using the `FI_ADDR_STR` format,
+the `addr` parameter should reference an array of strings (char \*\*).
 
 For AV's of type FI_AV_MAP, once inserted addresses have been mapped,
 the mapped values are written into the buffer referenced by fi_addr.
@@ -298,21 +304,37 @@ insertions complete.
 Because insertions occur at a pre-determined index, the fi_addr
 parameter may be NULL.  If fi_addr is non-NULL, it must reference
 an array of fi_addr_t, and the buffer must remain valid until the
-insertion operation completes.  Note that if
-fi_addr is NULL and synchronous operation is requested, individual
+insertion operation completes.  Note that if fi_addr is NULL and
+synchronous operation is requested without using FI_SYNC_ERR flag, individual
 insertion failures cannot be reported and the application must use
 other calls, such as `fi_av_lookup` to learn which specific addresses
-failed to insert.
+failed to insert.  Since fi_av_remove is provider-specific, it is recommended
+that calls to fi_av_insert following a call to fi_av_remove always reference a
+valid buffer in the fi_addr parameter.  Otherwise it may be difficult to
+determine what the next assigned index will be.
 
 *flags*
-: The following flag may be passed to fi_av_insert
+: The following flag may be passed to AV insertion calls: fi_av_insert,
+  fi_av_insertsvc, or fi_av_insertsym.
 
 - *FI_MORE*
 : In order to allow optimized address insertion, the application may
   specify the FI_MORE flag to the insert call to give a hint to the
   provider that more insertion requests will follow, allowing the
-  provider to aggregate insertion requests if desired.  Providers are
-  free to ignore FI_MORE.
+  provider to aggregate insertion requests if desired.  An application
+  may make any number of insertion calls with FI_MORE set, provided
+  that they are followed by an insertion call without FI_MORE.  This
+  signifies to the provider that the insertion list is complete.
+  Providers are free to ignore FI_MORE.
+
+- *FI_SYNC_ERR*
+: This flag applies to synchronous insertions only, and is used to
+  retrieve error details of failed insertions.  If set, the context
+  parameter of insertion calls references an array of integers, with
+  context set to address of the first element of the array.
+  The resulting status of attempting to insert each address will be
+  written to the corresponding array location.  Successful insertions
+  will be updated to 0.  Failures will contain a fabric errno code.
 
 ## fi_av_insertsvc
 
@@ -322,6 +344,10 @@ fi_getinfo inputs, rather than an encoded address.  The node and service
 parameters are defined the same as fi_getinfo(3).  Node should be a string
 that corresponds to a hostname or network address.  The service string
 corresponds to a textual representation of a transport address.
+Applications may also pass in an `FI_ADDR_STR` formatted address as the
+node parameter. In such cases, the service parameter must be NULL. See
+fi_getinfo.3 for details on using `FI_ADDR_STR`. Supported flags are the
+same as for fi_av_insert.
 
 ## fi_av_insertsym
 
@@ -349,18 +375,26 @@ host11:5001.
 
 The total number of inserted addresses will be nodecnt x svccnt.
 
+Supported flags are the same as for fi_av_insert.
+
 ## fi_av_remove
 
 fi_av_remove removes a set of addresses from an address vector.  All
-resources associated with the indicated addresses are released, and no
-future references to either the mapped address (in the case of
-FI_AV_MAP) or index (FI_AV_TABLE) are allowed.
+resources associated with the indicated addresses are released.
+The removed address - either the mapped address (in the case of FI_AV_MAP)
+or index (FI_AV_TABLE) - is invalid until it is returned again by a
+new fi_av_insert.
+
+The behavior of operations in progress that reference the removed addresses
+is undefined.
 
 The use of fi_av_remove is an optimization that applications may use
 to free memory allocated with addresses that will no longer be
 accessed.  Inserted addresses are not required to be removed.
 fi_av_close will automatically cleanup any resources associated with
 addresses remaining in the AV when it is invoked.
+
+Flags are reserved for future use and must be 0.
 
 ## fi_av_lookup
 
@@ -409,11 +443,18 @@ resources from removed entries.
 Insertion calls for an AV opened for synchronous operation will return
 the number of addresses that were successfully inserted.  In the case of
 failure, the return value will be less than the number of addresses that
-were specified.
+was specified.
 
 Insertion calls for an AV opened for asynchronous operation (with FI_EVENT
 flag specified) will return 0 if the operation was successfully initiated.
-In the case of failure, a negative fabric errno will be returned.
+In the case of failure, a negative fabric errno will be returned.  Providers
+are allowed to abort insertion operations in the case of an error. Addresses
+that are not inserted because they were aborted will fail with an error code
+of FI_ECANCELED.
+
+In both the synchronous and asynchronous modes of operation, the fi_addr
+buffer associated with a failed or aborted insertion will be set to
+FI_ADDR_NOTAVAIL.
 
 All other calls return 0 on success, or a negative value corresponding to
 fabric errno on error.

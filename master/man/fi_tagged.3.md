@@ -17,13 +17,13 @@ fi_tsend / fi_tsendv / fi_tsendmsg / fi_tinject / fi_tsenddata
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fi_tagged.h>
 
 ssize_t fi_trecv(struct fid_ep *ep, void *buf, size_t len, void *desc,
 	fi_addr_t src_addr, uint64_t tag, uint64_t ignore, void *context);
 
-ssize_t fi_trecvv(struct fid_ep *ep, const struct iovec *iov, void *desc,
+ssize_t fi_trecvv(struct fid_ep *ep, const struct iovec *iov, void **desc,
 	size_t count, fi_addr_t src_addr, uint64_t tag, uint64_t ignore,
 	void *context);
 
@@ -34,7 +34,7 @@ ssize_t fi_tsend(struct fid_ep *ep, const void *buf, size_t len,
 	void *desc, fi_addr_t dest_addr, uint64_t tag, void *context);
 
 ssize_t fi_tsendv(struct fid_ep *ep, const struct iovec *iov,
-	void *desc, size_t count, fi_addr_t dest_addr, uint64_t tag,
+	void **desc, size_t count, fi_addr_t dest_addr, uint64_t tag,
 	void *context);
 
 ssize_t fi_tsendmsg(struct fid_ep *ep, const struct fi_msg_tagged *msg,
@@ -49,7 +49,7 @@ ssize_t fi_tsenddata(struct fid_ep *ep, const void *buf, size_t len,
 
 ssize_t fi_tinjectdata(struct fid_ep *ep, const void *buf, size_t len,
 	uint64_t data, fi_addr_t dest_addr, uint64_t tag);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -107,9 +107,9 @@ the incoming message with a corresponding receive buffer.  Message
 tags match when the receive buffer tag is the same as the send buffer
 tag with the ignored bits masked out.  This can be stated as:
 
-{% highlight c %}
+```c
 send_tag & ~ignore == recv_tag & ~ignore
-{% endhighlight %}
+```
 
 In general, message tags are checked against receive buffers in the
 order in which messages have been posted to the endpoint.  See the
@@ -129,6 +129,12 @@ asynchronously.  Users should not touch the posted data buffer(s)
 until the receive operation has completed.  Posted receive buffers are
 matched with inbound send messages based on the tags associated with
 the send and receive buffers.
+
+An endpoint must be enabled before an application can post send
+or receive operations to it.  For connected endpoints, receive
+buffers may be posted prior to connect or accept being called on
+the endpoint.  This ensures that buffers are available to receive
+incoming data immediately after the connection has been established.
 
 Completed message operations are reported to the user through one or
 more event collectors associated with the endpoint.  Users provide
@@ -160,18 +166,18 @@ unconnected endpoints, with the ability to control the send operation
 per call through the use of flags.  The fi_tsendmsg function takes a
 struct fi_msg_tagged as input.
 
-{% highlight c %}
+```c
 struct fi_msg_tagged {
 	const struct iovec *msg_iov; /* scatter-gather array */
 	void               *desc;    /* data descriptor */
-	size_t             iov_count;/* # elements in msg_iov *
-	const void         *addr;    /* optional endpoint address */
+	size_t             iov_count;/* # elements in msg_iov */
+	fi_addr_t          addr;    /* optional endpoint address */
 	uint64_t           tag;      /* tag associated with message */
 	uint64_t           ignore;   /* mask applied to tag for receives */
 	void               *context; /* user-defined context */
 	uint64_t           data;     /* optional immediate data */
 };
-{% endhighlight %}
+```
 
 ## fi_tinject
 
@@ -182,7 +188,8 @@ available for reuse immediately on returning from from fi_tinject, and
 no completion event will be generated for this send.  The completion
 event will be suppressed even if the endpoint has not been configured
 with FI_SELECTIVE_COMPLETION.  See the flags discussion below for more
-details.
+details. The requested message size that can be used with fi_tinject is
+limited by inject_size.
 
 ## fi_tsenddata
 
@@ -249,7 +256,8 @@ and/or fi_tsendmsg.
   should be returned to user immediately after the send call returns,
   even if the operation is handled asynchronously.  This may require
   that the underlying provider implementation copy the data into a
-  local buffer and transfer out of that buffer.
+  local buffer and transfer out of that buffer. This flag can only
+  be used with messages smaller than inject_size.
 
 *FI_INJECT_COMPLETE*
 : Applies to fi_tsendmsg.  Indicates that a completion should be
@@ -262,8 +270,15 @@ and/or fi_tsendmsg.
 
 *FI_FENCE*
 : Applies to transmits.  Indicates that the requested operation, also
-  known as the fenced operation, be deferred until all previous operations
-  targeting the same target endpoint have completed.
+  known as the fenced operation, and any operation posted after the
+  fenced operation will be deferred until all previous operations
+  targeting the same peer endpoint have completed.  Operations posted
+  after the fencing will see and/or replace the results of any
+  operations initiated prior to the fenced operation.
+  
+  The ordering of operations starting at the posting of the fenced
+  operation (inclusive) to the posting of a subsequent fenced operation
+  (exclusive) is controlled by the endpoint's ordering semantics.
 
 The following flags may be used with fi_trecvmsg.
 
@@ -321,7 +336,7 @@ The following flags may be used with fi_trecvmsg.
   FI_CLAIM in order to retrieve and discard a message previously claimed
   using an FI_PEEK + FI_CLAIM request.
 
-  If this flag is set, the input buffer(s) and length parameters.
+  If this flag is set, the input buffer(s) and length parameters are ignored.
 
 # RETURN VALUE
 
@@ -332,12 +347,8 @@ errno values are defined in `fi_errno.h`.
 # ERRORS
 
 *-FI_EAGAIN*
-: Indicates that the underlying provider currently lacks the resources
-  needed to initiate the requested operation.  This may be the result
-  of insufficient internal buffering, in the case of FI_INJECT,
-  or processing queues are full.  The operation may be retried after
-  additional provider resources become available, usually through the
-  completion of currently outstanding operations.
+: See [`fi_msg`(3)](fi_msg.3.html) for a detailed description of handling
+  FI_EAGAIN.
 
 *-FI_EINVAL*
 : Indicates that an invalid argument was supplied by the user.

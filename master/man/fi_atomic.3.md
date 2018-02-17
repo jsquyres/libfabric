@@ -20,12 +20,13 @@ fi_compare_atomic / fi_compare_atomicv / fi_compare_atomicmsg
 : Initiates an atomic compare-operation to remote memory, retrieving
   the initial value.
 
-fi_atomic_valid / fi_fetch_atomic_valid / fi_compare_atomic_valid
+fi_atomicvalid / fi_fetch_atomicvalid / fi_compare_atomicvalid /
+fi_query_atomic
 : Indicates if a provider supports a specific atomic operation
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fi_atomic.h>
 
 ssize_t fi_atomic(struct fid_ep *ep, const void *buf,
@@ -88,7 +89,11 @@ int fi_fetch_atomicvalid(struct fid_ep *ep, enum fi_datatype datatype,
 
 int fi_compare_atomicvalid(struct fid_ep *ep, enum fi_datatype datatype,
     enum fi_op op, size_t *count);
-{% endhighlight %}
+
+int fi_query_atomic(struct fid_domain *domain,
+    enum fi_datatype datatype, enum fi_op op,
+    struct fi_atomic_attr *attr, uint64_t flags);
+```
 
 # ARGUMENTS
 
@@ -201,6 +206,13 @@ provider implementation constraints.
 
 *FI_LONG_DOUBLE*
 : A double-extended precision floating point value (IEEE 754).
+  Note that the size of a long double and number of bits used for
+  precision is compiler, platform, and/or provider specific.
+  Developers that use long double should ensure that libfabric is
+  built using a long double format that is compatible with their
+  application, and that format is supported by the provider.  The
+  mechanism used for this validation is currently beyond the scope of
+  the libfabric API.
 
 *FI_LONG_DOUBLE_COMPLEX*
 : An ordered pair of double-extended precision floating point values
@@ -218,125 +230,144 @@ operations.  A conceptual description of each operation is provided.
 
 *FI_MIN*
 : Minimum
-{% highlight c %}
+
+```c
 if (buf[i] < addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_MAX*
 : Maximum
-{% highlight c %}
+
+```c
 if (buf[i] > addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_SUM*
 : Sum
-{% highlight c %}
+
+```c
 addr[i] = addr[i] + buf[i]
-{% endhighlight %}
+```
 
 *FI_PROD*
 : Product
-{% highlight c %}
+
+```c
 addr[i] = addr[i] * buf[i]
-{% endhighlight %}
+```
 
 *FI_LOR*
 : Logical OR
-{% highlight c %}
+
+```c
 addr[i] = (addr[i] || buf[i])
-{% endhighlight %}
+```
 
 *FI_LAND*
 : Logical AND
-{% highlight c %}
+
+```c
 addr[i] = (addr[i] && buf[i])
-{% endhighlight %}
+```
 
 *FI_BOR*
 : Bitwise OR
-{% highlight c %}
+
+```c
 addr[i] = addr[i] | buf[i]
-{% endhighlight %}
+```
 
 *FI_BAND*
 : Bitwise AND
-{% highlight c %}
+
+```c
 addr[i] = addr[i] & buf[i]
-{% endhighlight %}
+```
 
 *FI_LXOR*
 : Logical exclusive-OR (XOR)
-{% highlight c %}
+
+```c
 addr[i] = ((addr[i] && !buf[i]) || (!addr[i] && buf[i]))
-{% endhighlight %}
+```
 
 *FI_BXOR*
 : Bitwise exclusive-OR (XOR)
-{% highlight c %}
+
+```c
 addr[i] = addr[i] ^ buf[i]
-{% endhighlight %}
+```
 
 *FI_ATOMIC_READ*
 : Read data atomically
-{% highlight c %}
-buf[i] = addr[i]
-{% endhighlight %}
+
+```c
+result[i] = addr[i]
+```
 
 *FI_ATOMIC_WRITE*
 : Write data atomically
-{% highlight c %}
+
+```c
 addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_CSWAP*
 : Compare values and if equal swap with data
-{% highlight c %}
+
+```c
 if (compare[i] == addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_CSWAP_NE*
 : Compare values and if not equal swap with data
-{% highlight c %}
+
+```c
 if (compare[i] != addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_CSWAP_LE*
 : Compare values and if less than or equal swap with data
-{% highlight c %}
+
+```c
 if (compare[i] <= addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_CSWAP_LT*
 : Compare values and if less than swap with data
-{% highlight c %}
+
+```c
 if (compare[i] < addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_CSWAP_GE*
 : Compare values and if greater than or equal swap with data
-{% highlight c %}
+
+```c
 if (compare[i] >= addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_CSWAP_GT*
 : Compare values and if greater than swap with data
-{% highlight c %}
+
+```c
 if (compare[i] > addr[i])
     addr[i] = buf[i]
-{% endhighlight %}
+```
 
 *FI_MSWAP*
 : Swap masked bits with data
-{% highlight c %}
+
+```c
 addr[i] = (buf[i] & compare[i]) | (addr[i] & ~compare[i])
-{% endhighlight %}
+```
 
 ## Base Atomic Functions
 
@@ -368,14 +399,15 @@ available for reuse immediately on returning from from
 fi_inject_atomic, and no completion event will be generated for this
 atomic.  The completion event will be suppressed even if the endpoint
 has not been configured with FI_SELECTIVE_COMPLETION.  See the flags
-discussion below for more details.
+discussion below for more details. The requested message size that
+can be used with fi_inject_atomic is limited by inject_size.
 
 The fi_atomicmsg call supports atomic functions over both connected
 and unconnected endpoints, with the ability to control the atomic
 operation per call through the use of flags.  The fi_atomicmsg
 function takes a struct fi_msg_atomic as input.
 
-{% highlight c %}
+```c
 struct fi_msg_atomic {
 	const struct fi_ioc *msg_iov; /* local scatter-gather array */
 	void                **desc;   /* local access descriptors */
@@ -389,12 +421,17 @@ struct fi_msg_atomic {
 	uint64_t            data;     /* optional data */
 };
 
-struct fi_rma_ioc {
-    uint64_t           addr;         /* target address */
-    size_t             count;        /* # target operands */
-    uint64_t           key;          /* access key */
+struct fi_ioc {
+	void		*addr;    /* local address */
+	size_t		count;    /* # target operands */
 };
-{% endhighlight %}
+
+struct fi_rma_ioc {
+	uint64_t	addr;     /* target address */
+	size_t		count;    /* # target operands */
+	uint64_t	key;      /* access key */
+};
+```
 
 The following list of atomic operations are usable with base
 atomic operations: FI_MIN, FI_MAX, FI_SUM, FI_PROD,
@@ -415,6 +452,10 @@ The following list of atomic operations are usable with
 fetch atomic operations: FI_MIN, FI_MAX, FI_SUM, FI_PROD,
 FI_LOR, FI_LAND, FI_BOR, FI_BAND, FI_LXOR, FI_BXOR, FI_ATOMIC_READ,
 and FI_ATOMIC_WRITE.
+
+For FI_ATOMIC_READ operations, the source buffer operand (e.g.
+fi_fetch_atomic buf parameter) is ignored and may be NULL.  The results
+are written into the result buffer.
 
 ## Compare-Atomic Functions
 
@@ -441,6 +482,39 @@ compare-atomic operation for a given datatype and operation.
 If an operation is supported, an atomic valid call will return 0,
 along with a count of atomic data units that a single function call
 will operate on.
+
+## Query Atomic Attributes
+
+The fi_query_atomic call acts as an enhanced atomic valid operation (see
+the atomic valid function definitions above).  It
+is provided, in part, for future extensibility.  The query operation reports
+which atomic operations are supported by the domain, for suitably configured
+endpoints.
+
+The behavior of fi_query_atomic is adjusted based on the flags parameter.
+If flags is 0, then the operation reports the supported atomic attributes
+for base atomic operations, similar to fi_atomicvalid for endpoints.  If
+flags has the FI_FETCH_ATOMIC bit set, the operation behaves similar to
+fi_fetch_atomicvalid.  Similarly, the flag bit FI_COMPARE_ATOMIC results in
+query acting as fi_compare_atomicvalid.  The FI_FETCH_ATOMIC and
+FI_COMPARE_ATOMIC bits may not both be set.
+
+If the FI_TAGGED bit is set, the provider will indicate if it supports
+atomic operations to tagged receive buffers.  The FI_TAGGED bit may be used
+by itself, or in conjunction with the FI_FETCH_ATOMIC and FI_COMPARE_ATOMIC
+flags.
+
+The output of fi_query_atomic is struct fi_atomic_attr:
+
+```c
+struct fi_atomic_attr {
+	size_t count;
+	size_t size;
+};
+```
+
+The count attribute field is as defined for the atomic valid calls.  The
+size field indicates the size in bytes of the atomic datatype.
 
 ## Completions
 
@@ -485,12 +559,26 @@ with atomic message calls.
   returns, even if the operation is handled asynchronously.  This may
   require that the underlying provider implementation copy the data
   into a local buffer and transfer out of that buffer.  The use of
-  output result buffers are not affected by this flag.
+  output result buffers are not affected by this flag. This flag can only
+  be used with messages smaller than inject_size.
 
 *FI_FENCE*
-: Indicates that the requested operation, also
-  known as the fenced operation, be deferred until all previous operations
-  targeting the same target endpoint have completed.
+: Applies to transmits.  Indicates that the requested operation, also
+  known as the fenced operation, and any operation posted after the
+  fenced operation will be deferred until all previous operations
+  targeting the same peer endpoint have completed.  Operations posted
+  after the fencing will see and/or replace the results of any
+  operations initiated prior to the fenced operation.
+  
+  The ordering of operations starting at the posting of the fenced
+  operation (inclusive) to the posting of a subsequent fenced operation
+  (exclusive) is controlled by the endpoint's ordering semantics.
+
+*FI_TAGGED*
+: Specifies that the target of the atomic operation is a tagged receive
+  buffer instead of an RMA buffer.  When a tagged buffer is the target
+  memory region, the addr parameter is used as a 0-based byte offset into
+  the tagged buffer, with the key parameter specifying the tag.
 
 # RETURN VALUE
 
@@ -499,6 +587,10 @@ errno is returned. Fabric errno values are defined in
 `rdma/fi_errno.h`.
 
 # ERRORS
+
+*-FI_EAGAIN*
+: See [`fi_msg`(3)](fi_msg.3.html) for a detailed description of handling
+  FI_EAGAIN.
 
 *-FI_EOPNOTSUPP*
 : The requested atomic operation is not supported on this endpoint.
@@ -515,15 +607,15 @@ the entire array.  The following pseudo-code demonstrates this operation
 for 64-bit unsigned atomic write.  ATOMIC_WRITE_U64 is a platform
 dependent macro that atomically writes 8 bytes to an aligned memory location.
 
-{% highlight c %}
+```c
 fi_atomic(ep, buf, count, NULL, dest_addr, addr, key,
-	FI_UINT64, FI_ATOMIC_WRITE, context);
+	  FI_UINT64, FI_ATOMIC_WRITE, context)
 {
 	for (i = 1; i < count; i ++)
 		ATOMIC_WRITE_U64(((uint64_t *) addr)[i],
-			((uint64_t *) buf)[i]);
+				 ((uint64_t *) buf)[i]);
 }
-{% endhighlight %}
+```
 
 The number of array elements to operate on is specified through a count
 parameter.  This must be between 1 and the maximum returned through the

@@ -16,13 +16,19 @@ You have been warned.
 
 * General information
   * [fabric(7)](fabric.7.html)
+  * [fi_bgq(7)](fi_bgq.7.html)
   * [fi_direct(7)](fi_direct.7.html)
   * [fi_gni(7)](fi_gni.7.html)
-  * [fi_mxm(7)](fi_mxm.7.html)
+  * [fi_mlx(7)](fi_mlx.7.html)
+  * [fi_netdir(7)](fi_netdir.7.html)
   * [fi_provider(7)](fi_provider.7.html)
   * [fi_psm(7)](fi_psm.7.html)
   * [fi_psm2(7)](fi_psm2.7.html)
+  * [fi_rxd(7)](fi_rxd.7.html)
+  * [fi_rxm(7)](fi_rxm.7.html)
+  * [fi_shm(7)](fi_shm.7.html)
   * [fi_sockets(7)](fi_sockets.7.html)
+  * [fi_udp(7)](fi_udp.7.html)
   * [fi_usnic(7)](fi_usnic.7.html)
   * [fi_verbs(7)](fi_verbs.7.html)
 

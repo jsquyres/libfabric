@@ -7,7 +7,7 @@ tagline: Libfabric Programmer's Manual
 
 # NAME
 
-Fabric Interface Providers
+fi_provider \- Fabric Interface Providers
 
 # OVERVIEW
 
@@ -21,6 +21,8 @@ framework are referred to as fabric providers, or simply providers.
 
 This distribution of libfabric contains the following providers
 (although more may be available via run-time plug-ins):
+
+## Core providers
 
 *GNI*
 : A provider for the Aries interconnect in Cray XC(TM) systems
@@ -53,6 +55,38 @@ This distribution of libfabric contains the following providers
   Verbs-based networking.
   See [`fi_verbs`(7)](fi_verbs.7.html) for more information.
 
+*Blue Gene/Q*
+: See [`fi_bgq`(7)](fi_bgq.7.html) for more information.
+
+## Utility providers
+
+*RxM*
+: The RxM provider (ofi_rxm) is an utility provider that supports RDM
+  endpoints emulated over MSG endpoints of a core provider.
+  See [`fi_rxm`(7)](fi_rxm.7.html) for more information.
+
+# CORE VERSUS UTILITY PROVIDERS
+
+Core providers implement the libfabric interfaces directly over low-level
+hardware and software interfaces.  They are designed to support a
+specific class of hardware, and may be limited to supporting a single
+NIC.  Core providers often only support libfabric features and interfaces
+that map efficiently to their underlying hardware.
+
+Utility providers are distinct from core providers in that they are not
+associated with specific classes of devices.  They instead work with
+core providers to expand their features, and interact with core providers
+through libfabric interfaces internally.  Utility providers are often used
+to support a specific endpoint type over a simpler endpoint type.  For
+example, the RXD provider implements reliability over unreliable datagram
+endpoints. The utility providers will not layer over the sockets provider
+unless it is explicitly requested.
+
+Utility providers show up as a component in the core provider's component
+list.  See [`fi_fabric`(3)](fi_fabric.3.html).  Utility providers are
+enabled automatically for core providers that do not support the feature
+set requested by an application.
+
 # PROVIDER REQUIREMENTS
 
 Libfabric provides a general framework for supporting multiple types
@@ -60,7 +94,7 @@ of fabric objects and their related interfaces.  Fabric providers have
 a large amount of flexibility in selecting which components they are
 able and willing to support, based on specific hardware constraints.
 Provider developers should refer to docs/provider for information on
-functionaliy supplied by the framework to assist in provider
+functionality supplied by the framework to assist in provider
 implementation.  To assist in the development of applications,
 libfabric specifies the
 following requirements that must be met by any fabric provider, if
@@ -125,13 +159,13 @@ Logging is performed using the FI_ERR, FI_LOG, and FI_DEBUG macros.
 
 ## DEFINITIONS
 
-{% highlight c %}
+```c
 #define FI_ERR(prov_name, subsystem, ...)
 
 #define FI_LOG(prov_name, prov, level, subsystem, ...)
 
 #define FI_DEBUG(prov_name, subsystem, ...)
-{% endhighlight %}
+```
 
 ## ARGUMENTS
 *prov_name*
@@ -164,3 +198,4 @@ Logging is performed using the FI_ERR, FI_LOG, and FI_DEBUG macros.
 [`fi_sockets`(7)](fi_sockets.7.html),
 [`fi_usnic`(7)](fi_usnic.7.html),
 [`fi_verbs`(7)](fi_verbs.7.html),
+[`fi_bgq`(7)](fi_bgq.7.html),

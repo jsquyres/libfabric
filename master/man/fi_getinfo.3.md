@@ -7,24 +7,24 @@ tagline: Libfabric Programmer's Manual
 
 # NAME
 
-fi_getinfo / fi_freeinfo \- Obtain / free fabric interface information
+fi_getinfo, fi_freeinfo \- Obtain / free fabric interface information
 
-fi_allocinfo / fi_dupinfo \- Allocate / duplicate an fi_info structure
+fi_allocinfo, fi_dupinfo \- Allocate / duplicate an fi_info structure
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fabric.h>
 
 int fi_getinfo(int version, const char *node, const char *service,
-        uint64_t flags, struct fi_info *hints, struct fi_info **info);
+        uint64_t flags, const struct fi_info *hints, struct fi_info **info);
 
 void fi_freeinfo(struct fi_info *info);
 
 struct fi_info *fi_allocinfo(void);
 
 struct fi_info *fi_dupinfo(const struct fi_info *info);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -89,7 +89,13 @@ Node, service, or hints may be provided, with any combination
 being supported.  If node is provided, fi_getinfo will attempt to
 resolve the fabric address to the given node.  If node is not given,
 fi_getinfo will attempt to resolve the fabric addressing information
-based on the provided hints.
+based on the provided hints.  Node is commonly used to provide a network
+address (such as an IP address) or hostname.  Service is usually
+associated with a transport address (such as a TCP port number).  Node
+and service parameters may be mapped by providers to native fabric
+addresses.  Applications may also pass in an FI_ADDR_STR formatted
+address (see format details below) as the node parameter.  In such cases,
+the service parameter must be NULL.
 
 The hints parameter, if provided, may be used to limit the resulting
 output as indicated below.  As a general rule, specifying a non-zero
@@ -111,7 +117,7 @@ a single fi_info structure and all the substructures within it.
 
 # FI_INFO
 
-{% highlight c %}
+```c
 struct fi_info {
 	struct fi_info        *next;
 	uint64_t              caps;
@@ -128,7 +134,7 @@ struct fi_info {
 	struct fi_domain_attr *domain_attr;
 	struct fi_fabric_attr *fabric_attr;
 };
-{% endhighlight %}
+```
 
 *next*
 : Pointer to the next fi_info structure in the list.  Will be NULL
@@ -151,24 +157,30 @@ struct fi_info {
 *src_addrlen - source address length*
 : Indicates the length of the source address.  This value must be > 0
   if *src_addr* is non-NULL.  This field will be ignored in hints if
-  FI_SOURCE is specified, or *src_addr* is NULL.
+  FI_SOURCE flag is set, or *src_addr* is NULL.
 
 *dest_addrlen - destination address length*
 : Indicates the length of the destination address.  This value must be > 0
   if *dest_addr* is non-NULL.  This field will be ignored in hints
-  unless the node and service parameters are NULL or FI_SOURCE is
-  specified, or if *dst_addr* is NULL.
+  unless the node and service parameters are NULL or FI_SOURCE flag is
+  set, or if *dst_addr* is NULL.
 
 *src_addr - source address*
 : If specified, indicates the source address.  This field will be
-  ignored in hints if FI_SOURCE is specified.  On output a provider shall
-  return an address that corresponds to the indicated fabric or domain,
-  with the format indicated by the returned *addr_format* field.
+  ignored in hints if FI_SOURCE flag is set.  On output a provider shall
+  return an address that corresponds to the indicated fabric, domain,
+  node, and/or service fields.  The format of the address is indicated
+  by the returned *addr_format* field.  Note that any returned address
+  is only used when opening a local endpoint.  The address is not
+  guaranteed to be usable by a peer process.
 
 *dest_addr - destination address*
 : If specified, indicates the destination address.  This field will be
   ignored in hints unless the node and service parameters are NULL or
-  FI_SOURCE is specified.
+  FI_SOURCE flag is set.  If FI_SOURCE is not specified, on output a
+  provider shall return an address the corresponds to the indicated
+  node and/or service fields, relative to the fabric and domain.  Note
+  that any returned address is only usable locally.
 
 *handle - provider context handle*
 : References a provider specific handle.  The use of this field
@@ -274,6 +286,11 @@ additional optimizations.
   FI_WRITE, FI_REMOTE_READ, and FI_REMOTE_WRITE flags to restrict the
   types of atomic operations supported by an endpoint.
 
+*FI_MULTICAST*
+: Indicates that the endpoint support multicast data transfers.  This
+  capability must be paired with at least one other data transfer capability,
+  (e.g. FI_MSG, FI_SEND, FI_RECV, ...).
+
 *FI_NAMED_RX_CTX*
 : Requests that endpoints which support multiple receive contexts
   allow an initiator to target (or name) a specific receive context as
@@ -296,6 +313,8 @@ additional optimizations.
   require that the provider perform address translation and/or look-up
   based on data available in the underlying protocol in order to
   provide the requested data, which may adversely affect performance.
+  The performance impact may be greater for address vectors of type
+  FI_AV_TABLE.
 
 *FI_READ*
 : Indicates that the user requires an endpoint capable of initiating
@@ -333,6 +352,10 @@ additional optimizations.
   flag requires that FI_REMOTE_READ and/or FI_REMOTE_WRITE be enabled on
   the endpoint.
 
+*FI_SHARED_AV*
+: Requests or indicates support for address vectors which may be shared
+  among multiple processes.
+
 *FI_TRIGGER*
 : Indicates that the endpoint should support triggered operations.
   Endpoints support this capability must meet the usage model as
@@ -346,6 +369,39 @@ additional optimizations.
   used to enforce ordering between operations that are not otherwise
   guaranteed by the underlying provider or protocol.
 
+*FI_LOCAL_COMM*
+: Indicates that the endpoint support host local communication.  This
+  flag may be used in conjunction with FI_REMOTE_COMM to indicate that
+  local and remote communication are required.  If neither FI_LOCAL_COMM
+  or FI_REMOTE_COMM are specified, then the provider will indicate
+  support for the configuration that minimally affects performance.
+  Providers that set FI_LOCAL_COMM but not FI_REMOTE_COMM, for example
+  a shared memory provider, may only be used to communication between
+  processes on the same system.
+
+*FI_REMOTE_COMM*
+: Indicates that the endpoint support communication with endpoints
+  located at remote nodes (across the fabric).  See FI_LOCAL_COMM for
+  additional details.  Providers that set FI_REMOTE_COMM but not
+  FI_LOCAL_COMM, for example NICs that lack loopback support, cannot
+  be used to communicate with processes on the same system.
+
+*FI_SOURCE_ERR*
+: Must be paired with FI_SOURCE.  When specified, this requests that
+  raw source addressing data be returned as part of completion data
+  for any address that has not been inserted into the local address
+  vector.  Use of this capability may require the provider to
+  validate incoming source address data against addresses stored in
+  the local address vector, which may adversely affect performance.
+
+*FI_RMA_PMEM*
+: Indicates that the provider is 'persistent memory aware' and supports
+  RMA operations to and from persistent memory.  Persistent memory aware
+  providers must support registration of memory that is backed by non-
+  volatile memory, RMA transfers to/from persistent memory, and enhanced
+  completion semantics.  This flag requires that FI_RMA be set.
+  This capability is experimental.
+
 Capabilities may be grouped into two general categories: primary and
 secondary.  Primary capabilities must explicitly be requested by an
 application, and a provider must enable support for only those primary
@@ -355,11 +411,12 @@ the capability or fail the fi_getinfo request (FI_ENODATA).  A provider
 may optionally report non-selected secondary capabilities if doing so
 would not compromise performance or security.
 
-Primary capabilities: FI_MSG, FI_RMA, FI_TAGGED, FI_ATOMIC, FI_NAMED_RX_CTX,
-FI_DIRECTED_RECV, FI_READ, FI_WRITE, FI_RECV, FI_SEND, FI_REMOTE_READ,
-and FI_REMOTE_WRITE.
+Primary capabilities: FI_MSG, FI_RMA, FI_TAGGED, FI_ATOMIC, FI_MULTICAST,
+FI_NAMED_RX_CTX, FI_DIRECTED_RECV, FI_READ, FI_WRITE, FI_RECV, FI_SEND,
+FI_REMOTE_READ, and FI_REMOTE_WRITE.
 
-Secondary capabilities: FI_MULTI_RECV, FI_SOURCE, FI_RMA_EVENT, FI_TRIGGER, FI_FENCE.
+Secondary capabilities: FI_MULTI_RECV, FI_SOURCE, FI_RMA_EVENT, FI_SHARED_AV,
+FI_TRIGGER, FI_FENCE, FI_LOCAL_COMM, FI_REMOTE_COMM, FI_SOURCE_ERR, FI_RMA_PMEM.
 
 # MODE
 
@@ -381,7 +438,8 @@ supported set of modes will be returned in the info structure(s).
 
 *FI_CONTEXT*
 : Specifies that the provider requires that applications use struct
-  fi_context as their per operation context parameter.  This structure
+  fi_context as their per operation context parameter for operations
+  that generated full completions.  This structure
   should be treated as opaque to the application.  For performance
   reasons, this structure must be allocated by the user, but may be
   used by the fabric provider to track the operation.  Typically,
@@ -391,15 +449,33 @@ supported set of modes will be returned in the info structure(s).
   fi_context should NOT be allocated on the stack.  Doing so is likely
   to result in stack corruption that will be difficult to debug.
   Users should not update or interpret the fields in this structure,
-  or reuse it until the original operation has completed.  The
-  structure is specified in rdma/fabric.h.
+  or reuse it until the original operation has completed.  If an
+  operation does not generate a completion (i.e. the endpoint was
+  configured with FI_SELECTIVE_COMPLETION and the operation was not
+  initiated with the FI_COMPLETION flag) then the context parameter is
+  ignored by the fabric provider.The structure is specified in 
+  rdma/fabric.h.
+
+*FI_CONTEXT2*
+: This bit is similar to FI_CONTEXT, but doubles the provider's
+  requirement on the size of the per context structure.  When set,
+  this specifies that the provider requires that applications use
+  struct fi_context2 as their per operation context parameter.
+  Or, optionally, an application can provide an array of two
+  fi_context structures (e.g. struct fi_context[2]) instead.
+  The requirements for using struct fi_context2 are identical as
+  defined for FI_CONTEXT above.
 
 *FI_LOCAL_MR*
 : The provider is optimized around having applications register memory
   for locally accessed data buffers.  Data buffers used in send and
   receive operations and as the source buffer for RMA and atomic
   operations must be registered by the application for access domains
-  opened with this capability.
+  opened with this capability.  This flag is defined for compatibility
+  and is ignored if the application version is 1.5 or later and the
+  domain mr_mode is set to anything other than FI_MR_BASIC or FI_MR_SCALABLE.
+  See the domain attribute mr_mode [`fi_domain`(3)](fi_domain.3.html)
+  and [`fi_mr`(3)](fi_mr.3.html).
 
 *FI_MSG_PREFIX*
 : Message prefix mode indicates that an application will provide
@@ -445,7 +521,7 @@ supported set of modes will be returned in the info structure(s).
   IOV buffering may have a negative impact on performance and memory
   consumption.  The FI_ASYNC_IOV mode indicates that the application
   must provide the buffering needed for the IO vectors.  When set,
-  an application must not modify an IO vector, including any
+  an application must not modify an IO vector of length > 1, including any
   related memory descriptor array, until the associated
   operation has completed.
 
@@ -454,6 +530,20 @@ supported set of modes will be returned in the info structure(s).
   When set, a data transfer that carries remote CQ data will consume a
   receive buffer at the target.  This is true even for operations that would
   normally not consume posted receive buffers, such as RMA write operations.
+
+*FI_NOTIFY_FLAGS_ONLY*
+: This bit indicates that general completion flags may not be set by
+  the provider, and are not needed by the application.  If specified,
+  completion flags which simply report the type of operation that
+  completed (e.g. send or receive) may not be set.  However,
+  completion flags that are used for remote notifications will still
+  be set when applicable.  See `fi_cq`(3) for details on which completion
+  flags are valid when this mode bit is enabled.
+
+*FI_RESTRICTED_COMP*
+: This bit indicates that the application will only share completion queues
+  and counters among endpoints, transmit contexts, and receive contexts that
+  have the same set of capability flags.
 
 # ADDRESSING FORMATS
 
@@ -495,6 +585,28 @@ fabric.  See `fi_av`(3).
 *FI_ADDR_PSMX*
 : Address is an Intel proprietary format that is used with their PSMX
   (extended performance scaled messaging) protocol.
+
+*FI_ADDR_GNI*
+: Address is a Cray proprietary format that is used with their GNI
+  protocol.
+
+*FI_ADDR_STR*
+: Address is a formatted character string.  The length and content of
+  the string is address and/or provider specific, but in general follows
+  a URI model:
+
+```
+address_format[://[node][:[service][/[field3]...][?[key=value][&k2=v2]...]]]
+```
+
+  Examples:
+  - fi_sockaddr://10.31.6.12:7471
+  - fi_sockaddr_in6://[fe80::6:12]:7471
+  - fi_sockaddr://10.31.6.12:7471?qos=3
+
+  Since the string formatted address does not contain any provider
+  information, the prov_name field of the fabric attribute structure should
+  be used to filter by provider if necessary.
 
 # FLAGS
 
@@ -567,7 +679,7 @@ If neither node, service or hints are provided, then fi_getinfo simply
 returns the list all available communication interfaces.
 
 Multiple threads may call
-`fi_getinfo` "simultaneously, without any requirement for serialization."
+`fi_getinfo` simultaneously, without any requirement for serialization.
 
 # SEE ALSO
 

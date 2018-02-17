@@ -18,7 +18,7 @@ fi_inject_write / fi_writedata
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fi_rma.h>
 
 ssize_t fi_read(struct fid_ep *ep, void *buf, size_t len, void *desc,
@@ -51,7 +51,7 @@ ssize_t fi_writedata(struct fid_ep *ep, const void *buf, size_t len,
 
 ssize_t fi_inject_writedata(struct fid_ep *ep, const void *buf, size_t len,
 	uint64_t data, fi_addr_t dest_addr, uint64_t addr, uint64_t key);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -73,7 +73,9 @@ ssize_t fi_inject_writedata(struct fid_ep *ep, const void *buf, size_t len,
 : Count of vectored data entries.
 
 *addr*
-: Address of remote memory to access.
+: Address of remote memory to access.  This will be the virtual
+  address of the remote region in the case of FI_MR_BASIC, or the
+  offset from the starting address in the case of FI_MR_SCALABLE.
 
 *key*
 : Protection key associated with the remote memory.
@@ -155,7 +157,7 @@ unconnected endpoints, with the ability to control the write operation
 per call through the use of flags.  The fi_writemsg function takes a
 struct fi_msg_rma as input.
 
-{% highlight c %}
+```c
 struct fi_msg_rma {
 	const struct iovec *msg_iov;     /* local scatter-gather array */
 	void               **desc;       /* operation descriptor */
@@ -172,18 +174,19 @@ struct fi_rma_iov {
 	size_t             len;          /* size of target buffer */
 	uint64_t           key;          /* access key */
 };
-{% endhighlight %}
+```
 
 ## fi_inject_write
 
 The write inject call is an optimized version of fi_write.  The
 fi_inject_write function behaves as if the FI_INJECT transfer flag
 were set, and FI_COMPLETION were not.  That is, the data buffer is
-available for reuse immediately on returning from from
+available for reuse immediately on returning from
 fi_inject_write, and no completion event will be generated for this
 write.  The completion event will be suppressed even if the endpoint
 has not been configured with FI_SELECTIVE_COMPLETION.  See the flags
-discussion below for more details.
+discussion below for more details. The requested message size that
+can be used with fi_inject_write is limited by inject_size.
 
 ## fi_writedata
 
@@ -249,7 +252,8 @@ fi_writemsg.
    should be returned to user immediately after the write call
    returns, even if the operation is handled asynchronously.  This may
    require that the underlying provider implementation copy the data
-   into a local buffer and transfer out of that buffer.
+   into a local buffer and transfer out of that buffer. This flag can only
+   be used with messages smaller than inject_size.
 
 *FI_INJECT_COMPLETE*
 : Applies to fi_writemsg.  Indicates that a completion should be
@@ -264,10 +268,22 @@ fi_writemsg.
 : Applies to fi_writemsg.  Indicates that a completion should be
   generated when the operation has been processed by the destination.
 
+*FI_COMMIT_COMPLETE*
+: Applies to fi_writemsg when targeting persistent memory regions.
+  Indicates that a completion should be generated only after the result
+  of the operation has been made durable.
+
 *FI_FENCE*
-: Indicates that the requested operation, also
-  known as the fenced operation, be deferred until all previous operations
-  targeting the same target endpoint have completed.
+: Applies to transmits.  Indicates that the requested operation, also
+  known as the fenced operation, and any operation posted after the
+  fenced operation will be deferred until all previous operations
+  targeting the same peer endpoint have completed.  Operations posted
+  after the fencing will see and/or replace the results of any
+  operations initiated prior to the fenced operation.
+  
+  The ordering of operations starting at the posting of the fenced
+  operation (inclusive) to the posting of a subsequent fenced operation
+  (exclusive) is controlled by the endpoint's ordering semantics.
 
 # RETURN VALUE
 
@@ -278,12 +294,8 @@ errno is returned. Fabric errno values are defined in
 # ERRORS
 
 *-FI_EAGAIN*
-: Indicates that the underlying provider currently lacks the resources
-  needed to initiate the requested operation.  This may be the result
-  of insufficient internal buffering, in the case of FI_INJECT,
-  or processing queues are full.  The operation may be retried after
-  additional provider resources become available, usually through the
-  completion of currently outstanding operations.
+: See [`fi_msg`(3)](fi_msg.3.html) for a detailed description of handling
+  FI_EAGAIN.
 
 # SEE ALSO
 

@@ -17,7 +17,7 @@ fi_tostr
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fabric.h>
 
 int fi_fabric(struct fi_fabric_attr *attr,
@@ -26,7 +26,7 @@ int fi_fabric(struct fi_fabric_attr *attr,
 int fi_close(struct fid *fabric);
 
 char * fi_tostr(const void *data, enum fi_type datatype);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -132,14 +132,15 @@ domains, passive endpoints, and CM event queues.
 The fi_fabric_attr structure defines the set of attributes associated
 with a fabric and a fabric provider.
 
-{% highlight c %}
+```c
 struct fi_fabric_attr {
 	struct fid_fabric *fabric;
 	char              *name;
 	char              *prov_name;
 	uint32_t          prov_version;
+	uint32_t          api_version;
 };
-{% endhighlight %}
+```
 
 ## fabric
 
@@ -153,9 +154,14 @@ instance.  If no instance has been opened, this field will be NULL.
 
 A fabric identifier.
 
-## prov_name
+## prov_name - Provider Name
 
 The name of the underlying fabric provider.
+
+To request an utility provider layered over a specific core provider, both
+the provider names have to be specified using ";" as delimiter.
+
+e.g. "ofi_rxm;verbs" or "verbs;ofi_rxm"
 
 For debugging and administrative purposes, environment variables can be used
 to control which fabric providers will be registered with libfabric.
@@ -167,13 +173,23 @@ Applications which need a specific set of providers should implement
 their own filtering of fi_getinfo's results rather than relying on these
 environment variables in a production setting.
 
-## prov_version
+## prov_version - Provider Version
 
-Version information for the fabric provider.
+Version information for the fabric provider, in a major.minor format.  The
+use of the FI_MAJOR() and FI_MINOR() version macros may be used to extract
+the major and minor version data.  See `fi_version(3)`.
+
+In case of an utility provider layered over a core provider, the version
+would always refer to that of the utility provider.
+
+## api_version
+
+The interface version requested by the application.  This value corresponds to
+the version parameter passed into `fi_getinfo(3)`.
 
 # RETURN VALUE
 
-Returns 0 on success. On error, a negative value corresponding to
+Returns FI_SUCCESS on success. On error, a negative value corresponding to
 fabric errno is returned. Fabric errno values are defined in
 `rdma/fi_errno.h`.
 

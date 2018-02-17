@@ -29,7 +29,7 @@ fi_cntr_wait
 
 # SYNOPSIS
 
-{% highlight c %}
+```c
 #include <rdma/fi_domain.h>
 
 int fi_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
@@ -43,11 +43,15 @@ uint64_t fi_cntr_readerr(struct fid_cntr *cntr);
 
 int fi_cntr_add(struct fid_cntr *cntr, uint64_t value);
 
+int fi_cntr_adderr(struct fid_cntr *cntr, uint64_t value);
+
 int fi_cntr_set(struct fid_cntr *cntr, uint64_t value);
+
+int fi_cntr_seterr(struct fid_cntr *cntr, uint64_t value);
 
 int fi_cntr_wait(struct fid_cntr *cntr, uint64_t threshold,
     int timeout);
-{% endhighlight %}
+```
 
 # ARGUMENTS
 
@@ -86,21 +90,22 @@ request.
 
 Counters typically only count successful completions.  However, if an
 operation completes in error, it may increment an associated error
-value.
+value.  That is, a counter actually stores two distinct values, with
+error completions updating an error specific value.
 
 ## fi_cntr_open
 
 fi_cntr_open allocates a new fabric counter.  The properties and
 behavior of the counter are defined by `struct fi_cntr_attr`.
 
-{% highlight c %}
+```c
 struct fi_cntr_attr {
 	enum fi_cntr_events  events;    /* type of events to count */
 	enum fi_wait_obj     wait_obj;  /* requested wait object */
 	struct fid_wait     *wait_set;  /* optional wait set */
 	uint64_t             flags;     /* operation flags */
 };
-{% endhighlight %}
+```
 
 *events*
 : A counter captures different types of events.  The specific type
@@ -110,7 +115,7 @@ struct fi_cntr_attr {
 : The counter increments for every successful completion that occurs
   on an associated bound endpoint.  The type of completions -- sends
   and/or receives -- which are counted may be restricted using control
-  flags when binding the counter an the endpoint.  Counters increment
+  flags when binding the counter and the endpoint.  Counters increment
   on all successful completions, separately from whether the operation
   generates an entry in an event queue.
 
@@ -122,7 +127,8 @@ struct fi_cntr_attr {
   object associated with a counter, in order to use it in other system
   calls.  The following values may be used to specify the type of wait
   object associated with a counter: FI_WAIT_NONE, FI_WAIT_UNSPEC,
-  FI_WAIT_SET, FI_WAIT_FD, and FI_WAIT_MUTEX_COND.
+  FI_WAIT_SET, FI_WAIT_FD, and FI_WAIT_MUTEX_COND.  The default is
+  FI_WAIT_NONE.
 
 - *FI_WAIT_NONE*
 : Used to indicate that the user will not block (wait) for events on
@@ -170,7 +176,6 @@ receive contexts or memory regions associated with the counter.  If resources
 are still associated with the counter when attempting to close, the call will
 return -FI_EBUSY.
 
-
 ## fi_cntr_control
 
 The fi_cntr_control call is used to access provider or implementation
@@ -205,9 +210,17 @@ error and were unable to update the counter.
 
 This adds the user-specified value to the counter.
 
+## fi_cntr_adderr
+
+This adds the user-specified value to the error value of the counter.
+
 ## fi_cntr_set
 
 This sets the counter to the specified value.
+
+## fi_cntr_seterr
+
+This sets the error value of the counter to the specified value.
 
 ## fi_cntr_wait
 
@@ -224,6 +237,9 @@ fi_cntr_wait.
 If the call returns due to timeout, -FI_ETIMEDOUT will be returned.
 The error value associated with the counter remains unchanged.
 
+It is invalid for applications to call this function if the counter
+has been configured with a wait object of FI_WAIT_NONE or FI_WAIT_SET.
+
 # RETURN VALUES
 
 Returns 0 on success.  On error, a negative value corresponding to
@@ -237,6 +253,13 @@ Fabric errno values are defined in
 
 # NOTES
 
+In order to support a variety of counter implementations, updates made to
+counter values (e.g. fi_cntr_set or fi_cntr_add) may not be immediately
+visible to counter read operations (i.e. fi_cntr_read or fi_cntr_readerr).
+A small, but undefined, delay may occur between the counter changing and
+the reported value being updated.  However, a final updated value will
+eventually be reflected in the read counter value, with the order of the
+updates maintained.
 
 # SEE ALSO
 
