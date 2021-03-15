@@ -16,6 +16,25 @@ jobs:
           - name: Check out the code
             uses: actions/checkout@v2
 
+          - name: Dump GitHub context
+            env:
+              GITHUB_CONTEXT: ${{ toJSON(github) }}
+              clone_url: ${{ github.event.pull_request.head.repo.clone_url }}
+              head_ref: ${{ github.event.pull_request.head.ref }}
+            run: |
+              echo "JMS: $clone_url, $head_ref"
+              echo "============================="
+              echo "$GITHUB_CONTEXT"
+              echo "============================="
+              git remote -v
+              echo "============================="
+              git status
+              echo "============================="
+              git remote add pr $clone_url
+              echo "============================="
+              git remote -v
+              echo "============================="
+
           - name: Get the required packages
             run: sudo apt install -y pandoc perl
 
@@ -33,3 +52,4 @@ jobs:
               author_email: ofiwg@lists.openfabrics.org
               message: Updated nroff-generated man pages
               signoff: true
+              push: pr ${{ github.event.pull_request.head.ref }} --set-upstream
