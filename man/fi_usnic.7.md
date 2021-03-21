@@ -16,6 +16,8 @@ The *usnic* provider is designed to run over the Cisco VIC
 Cisco usNIC (userspace NIC) capabilities of the VIC to enable ultra
 low latency and other offload capabilities on Ethernet networks.
 
+It's awesome.
+
 # RELEASE NOTES
 
 * The *usnic* libfabric provider requires the use of the "libnl"
