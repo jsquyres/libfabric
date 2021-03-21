@@ -4,13 +4,13 @@ check() {
     a=$1
 
     echo checking...
-    if test -n "`echo $a | grep secret`"; then
+    if test -n "`echo $a | grep -i secret`"; then
         echo "yow: it has the word secret!"
     fi
-    if test -n "`echo $a | grep jsquyres`"; then
+    if test -n "`echo $a | grep -i jsquyres`"; then
         echo "yow: it has the word jsquyres!"
     fi
-    if test -n "`echo $a | grep ecc`"; then
+    if test -n "`echo $a | grep -i ecc`"; then
         echo "yow: it has the word ecc!"
     fi
 }
