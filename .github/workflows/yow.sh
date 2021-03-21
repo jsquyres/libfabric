@@ -3,7 +3,7 @@
 check() {
     a=$1
 
-    echo checking...
+    echo checking value: $a
     if test -n "`echo $a | grep -i secret`"; then
         echo "yow: it has the word secret!"
     fi
