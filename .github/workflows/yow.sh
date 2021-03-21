@@ -3,13 +3,13 @@
 check() {
     a=$1
 
-    if echo "$a" | grep secret; then
+    if test -n "`echo "$a" | grep secret`"; then
         echo "yow: it has the word secret!"
     fi
-    if echo "$a" | grep jsquyres; then
+    if test -n "`echo "$a" | grep jsquyres`"; then
         echo "yow: it has the word jsquyres!"
     fi
-    if echo "$a" | grep ecc; then
+    if test -n "`echo "$a" | grep ecc`"; then
         echo "yow: it has the word ecc!"
     fi
 }
