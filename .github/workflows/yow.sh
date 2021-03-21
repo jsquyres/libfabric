@@ -1,7 +1,7 @@
 #!/bin/bash
 
 check() {
-    a=$1
+    a=$*
 
     echo checking value: $a
     if test -n "`echo $a | grep -i secret`"; then
@@ -16,8 +16,8 @@ check() {
 }
 
 echo yow: this is env val: $VAL
-check $VAL
+check "$VAL"
 
 arg=$1
 echo yow: this is arg: $arg
-check $arg
+check "$arg"
