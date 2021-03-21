@@ -23,8 +23,10 @@ if test "$orig_hash" = "$new_hash"; then
 fi
 
 # Yes, we committed something.  Push the branch and make a PR.
-git push origin
+# Extract the PR number.
+git push origin $GITHUB_REPOSITORY
 url=`hub pull-request -m 'Update nroff-generated man pages'`
+pr_num=`echo $url | cut -d/ -f7`
 
 # Wait for the required "DCO" CI to complete
 i=0
@@ -51,7 +53,7 @@ if test $i -lt $i_max; then
     curl \
         -XPUT \
         -H "Authorization: token $GITHUB_TOKEN" \
-        https://api.github.com/repos/ofiwg/libfabric/pulls/$pr_num/merge
+        https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr_num/merge
 else
     echo "Sad panda; DCO CI didn't complete -- did not merge $url"
     status=1
