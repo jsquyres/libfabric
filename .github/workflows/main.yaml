@@ -27,7 +27,7 @@ name: GitHub Action Schedule
 
 on:
   schedule:
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -51,19 +51,69 @@ jobs:
               echo "============================="
 
           - name: Get the required packages
-            run: sudo apt install -y pandoc perl
+            run: sudo apt install -y pandoc perl hub
 
           - name: Build the nroff man pages
             run: |
+              orig_hash=`git rev-parse HEAD`
+
               for file in `ls man/*.md`; do
                 perl config/md2nroff.pl --source=$file
               done
 
-          - name: Make a git commit with the changes and push back to the PR branch
-            uses: EndBug/add-and-commit@v7
-            with:
-              add: man
-              author_name: OFIWG Bot
-              author_email: ofiwg@lists.openfabrics.org
-              message: Updated nroff-generated man pages
-              signoff: true
+              git config --global user.name "OFIWG Bot"
+              git config --global user.email "ofiwg@lists.openfabrics.org"
+
+              branch_name=pr/update-nroff-generated-man-pages
+              git checkout -b $branch_name
+              git commit -as -m 'Updated nroff-generated man pages'
+
+              # Did we commit anything?
+              new_hash=`git rev-parse HEAD`
+              if test "$orig_hash" = "$new_hash"; then
+                  echo "Nothing to commit -- nothing to do!"
+                  exit 0
+              fi
+
+              # Yes, we committed something.  Push the branch and make
+              # a PR.
+              git push
+              url=`hub pull-request -m 'Update nroff-generated man pages'`
+
+              # Wait for the required "DCO" CI to complete
+              i=0
+              sleep_time=5
+              max_seconds=300
+              i_max=`expr $max_seconds / $sleep_time`
+
+              echo "Waiting up to $max_seconds seconds for DCO CI to complete..."
+              while test $i -lt $i_max; do
+                  date
+                  status=`hub ci-status --format "%t %S%n" | egrep '^DCO' | awk '{ print %2 }'`
+                  if test "$status" = "success"; then
+                      echo "DCO CI is complete!"
+                      break
+                  fi
+                  sleep $sleep_time
+                  i=`expr $i + 1`
+              done
+
+              status=0
+              if test $i -lt $i_max; then
+                  # Sadly, there is no "hub" command to merge a PR.
+                  # So do it by hand.
+                  curl \
+                      -XPUT \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      https://api.github.com/repos/ofiwg/libfabric/pulls/$pr_num/merge
+              else
+                  echo "Sad panda; DCO CI didn't complete -- did not merge $url"
+                  status=1
+              fi
+
+              # Delete the remote branch
+              git push origin --delete $branch_name
+              exit $status
+
+            env:
+              GITHUB_TOKEN: {{ secrets.GITHUB_TOKEN }}
