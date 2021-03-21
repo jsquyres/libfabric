@@ -4,13 +4,13 @@ check() {
     a=$1
 
     if echo "$a" | grep secret; then
-        echo "it has the word secret!"
+        echo "yow: it has the word secret!"
     fi
     if echo "$a" | grep jsquyres; then
-        echo "it has the word jsquyres!"
+        echo "yow: it has the word jsquyres!"
     fi
     if echo "$a" | grep ecc; then
-        echo "it has the word ecc!"
+        echo "yow: it has the word ecc!"
     fi
 }
 
@@ -19,4 +19,4 @@ check $VAL
 
 arg=$1
 echo yow: this is arg: $arg
-check $ARG
+check $arg
