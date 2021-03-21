@@ -37,7 +37,7 @@ i_max=`expr $max_seconds / $sleep_time`
 echo "Waiting up to $max_seconds seconds for DCO CI to complete..."
 while test $i -lt $i_max; do
     date
-    status=`hub ci-status --format "%t %S%n" | egrep '^DCO' | awk '{ print %2 }'`
+    status=`hub ci-status --format "%t %S%n" | egrep '^DCO' | awk '{ print $2 }'`
     if test "$status" = "success"; then
         echo "DCO CI is complete!"
         break
