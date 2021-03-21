@@ -8,6 +8,7 @@ jobs:
     ci:
         name: The Nroff Elves
         runs-on: ubuntu-latest
+        environment: nroff-elves
         steps:
           - name: Check out the code
             uses: actions/checkout@v2
@@ -31,6 +32,12 @@ jobs:
               git remote -v
               echo "============================="
 
+          - name: Show
+            run: |
+              .github/workflows/yow.sh $VAL
+            env:
+              VAL: val_env ${{ secrets.TEST }}
+              
           - name: Get the required packages
             run: sudo apt install -y pandoc perl
 

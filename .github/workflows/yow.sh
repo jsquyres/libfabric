@@ -17,10 +17,6 @@ check() {
 echo yow: this is env val: $VAL
 check $VAL
 
-read in
-echo yow: this is what I read from stdin: $in
-check $in
-
 arg=$1
 echo yow: this is arg: $arg
 check $ARG
