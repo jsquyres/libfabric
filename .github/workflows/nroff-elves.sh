@@ -37,7 +37,9 @@ i_max=`expr $max_seconds / $sleep_time`
 echo "Waiting up to $max_seconds seconds for DCO CI to complete..."
 while test $i -lt $i_max; do
     date
+    set +e
     status=`hub ci-status --format "%t %S%n" | egrep '^DCO' | awk '{ print $2 }'`
+    set -e
     if test "$status" = "success"; then
         echo "DCO CI is complete!"
         break
@@ -48,8 +50,8 @@ done
 
 status=0
 if test $i -lt $i_max; then
-    # Sadly, there is no "hub" command to merge a PR.
-    # So do it by hand.
+    # Sadly, there is no "hub" command to merge a PR.  So do it by
+    # hand.
     curl \
         -XPUT \
         -H "Authorization: token $GITHUB_TOKEN" \
