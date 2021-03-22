@@ -2,8 +2,6 @@
 
 set -euxo pipefail
 
-orig_hash=`git rev-parse HEAD`
-
 for file in `ls man/*.md`; do
     perl config/md2nroff.pl --source=$file
 done
@@ -13,11 +11,13 @@ git config --global user.email "ofiwg@lists.openfabrics.org"
 
 branch_name=pr/update-nroff-generated-man-pages
 git checkout -b $branch_name
-git commit -as -m 'Updated nroff-generated man pages'
 
-# Did we commit anything?
-new_hash=`git rev-parse HEAD`
-if test "$orig_hash" = "$new_hash"; then
+set +e
+git commit -as -m 'Updated nroff-generated man pages'
+st=$?
+set -e
+
+if test $st -ne 0; then
     echo "Nothing to commit -- nothing to do!"
     exit 0
 fi
