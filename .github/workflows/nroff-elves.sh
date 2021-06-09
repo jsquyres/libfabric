@@ -31,6 +31,8 @@ git push --set-upstream origin $branch_name
 
 echo JMS: git branch/tracking
 git branch -vv
+echo JMS: git remote
+git remote -v
 
 url=`hub pull-request -m 'Update nroff-generated man pages'`
 pr_num=`echo $url | cut -d/ -f7`
