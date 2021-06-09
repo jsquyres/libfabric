@@ -1,6 +1,7 @@
 name: GitHub Action Schedule
 
 on:
+  pull_request:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
@@ -20,3 +21,4 @@ jobs:
             run: .github/workflows/nroff-elves.sh
             env:
               GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              BASE_REF: ${{ github.base_ref }}
