@@ -40,7 +40,7 @@ git symbolic-ref refs/remotes/origin/HEAD
 echo JMS: git rev parse
 git rev-parse --symbolic-full-name main@{origin}
 
-url=`hub pull-request -m 'Update nroff-generated man pages'`
+url=`hub pull-request -b $BASE_REF -m 'Update nroff-generated man pages'`
 pr_num=`echo $url | cut -d/ -f7`
 
 # Wait for the required "DCO" CI to complete
