@@ -35,10 +35,10 @@ echo JMS: git branch/tracking
 git branch -vv
 echo JMS: git remote
 git remote -v
-echo JMS: default branch
-git symbolic-ref refs/remotes/origin/HEAD
-echo JMS: git rev parse
-git rev-parse --symbolic-full-name main@{origin}
+#echo JMS: default branch
+#git symbolic-ref refs/remotes/origin/HEAD
+#echo JMS: git rev parse
+#git rev-parse --symbolic-full-name main@{origin}
 
 url=`hub pull-request -b $BASE_REF -m 'Update nroff-generated man pages'`
 pr_num=`echo $url | cut -d/ -f7`
