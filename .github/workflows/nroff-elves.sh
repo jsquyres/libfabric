@@ -29,6 +29,8 @@ fi
 echo JMS GITHUB_TOKEN is: $GITHUB_TOKEN
 git push --set-upstream origin $branch_name
 
+echo JMS BASE_REF Is: $BASE_REF
+
 echo JMS: git branch/tracking
 git branch -vv
 echo JMS: git remote
