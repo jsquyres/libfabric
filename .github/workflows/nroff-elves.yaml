@@ -2,7 +2,7 @@ name: GitHub Action Schedule
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,9 +12,9 @@ jobs:
         steps:
           - name: Debug
             env:
-              output: ${{ toJSON(github.event) }}
+              output: ${{ toJSON(github) }}
             run: |
-              echo JMS this is github.event
+              echo JMS this is github
               echo "$output"
 
           - name: Check out the git repo
@@ -27,4 +27,5 @@ jobs:
             run: .github/workflows/nroff-elves.sh
             env:
               GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              REPO: ${{ github.event.repository.full_name }}
               BASE_REF: ${{ github.event.repository.default_branch }}

@@ -2,6 +2,40 @@
 
 set -euxo pipefail
 
+# Only do anything meaningful in the main ofiwg/libfabric repo.  If
+# we're not in that repo, then don't do anything because it confuses
+# people who fork the libfabric repo if new commits can mysteriously
+# show up in their fork's default branch.
+if test -n "$REPO"; then
+    first=`echo $REPO | cut -d/ -f1`
+    second=`echo $REPO | cut -d/ -f2`
+
+    if test "$first" != "ofiwg" -o "$second" != "libfabric"; then
+        cat <<EOF
+
+The Nroff Elves are contractually obligated to only operate on the
+ofiwg/libfabric repository.
+
+Exiting without doing anything.
+
+EOF
+        exit 0
+    fi
+fi
+
+# In June of 2021, ofiwg/libfabric changed its default branch from
+# "master" to "main".  This confuses "hub" (because it still falls
+# back to "master" when it can't figure out the target branch name).
+# But sometimes, github.event.repository.default_branch is blank --
+# even when it should be "main".  So if we get here and $BASE_REPO was
+# not loaded with a branch name (from nroff-elves.yaml), assume that
+# it should be "main".  This is lame and shouldn't be necessary, but
+# it prevents us all from getting Github Action failure emails.  Sigh.
+if test -z "$BASE_REF"; then
+    BASE_REF=main
+fi
+
+# If we're here, we want to generate some nroff.  Woo hoo!
 for file in `ls man/*.md`; do
     perl config/md2nroff.pl --source=$file
 done
