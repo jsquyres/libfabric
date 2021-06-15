@@ -10,6 +10,13 @@ jobs:
         name: The Nroff Elves
         runs-on: ubuntu-latest
         steps:
+          - name: Debug
+            env:
+              output: ${{ toJSON(github.event) }}
+            run: |
+              echo JMS this is github.event
+              echo "$output"
+
           - name: Check out the git repo
             uses: actions/checkout@v2
 
